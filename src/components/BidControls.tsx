@@ -99,7 +99,7 @@ export default function BidControls({
     return (
       <div className="rounded-xl border border-slate-800 bg-slate-900/50 p-4 text-center">
         <p className="text-xs text-amber-400 font-bold uppercase tracking-wider">
-          Auctioneer Mode
+          Auctioneer Modes
         </p>
         <p className="text-xs text-slate-400 mt-1">
           You are orchestrating this auction. Team owners submit live bids below. Use the hammer controls to manage the lot.
