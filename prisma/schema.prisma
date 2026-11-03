@@ -1,0 +1,268 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+enum UserRole {
+  AUCTIONEER
+  TEAM_OWNER
+  VIEWER
+}
+
+enum RoomStatus {
+  DRAFT
+  WAITING
+  LIVE
+  PAUSED
+  COMPLETED
+}
+
+enum RoomRole {
+  AUCTIONEER
+  TEAM_OWNER
+  VIEWER
+}
+
+enum PlayerPosition {
+  ATTACKER
+  SETTER
+  LIBERO
+  DEFENDER
+  ALL_ROUNDER
+}
+
+enum AuctionState {
+  SCHEDULED
+  ACTIVE
+  PAUSED
+  CONCLUDED
+}
+
+enum AuctionPlayerStatus {
+  UPCOMING
+  IN_AUCTION
+  SOLD
+  UNSOLD
+}
+
+model User {
+  id          String           @id @default(uuid())
+  email       String           @unique
+  name        String
+  password    String?
+  avatarUrl   String?
+  role        UserRole         @default(AUCTIONEER)
+  createdAt   DateTime         @default(now())
+  updatedAt   DateTime         @updatedAt
+
+  ownedRooms  AuctionRoom[]    @relation("RoomOwner")
+  memberships RoomMembership[]
+  teams       Team[]           @relation("TeamOwner")
+  bids        Bid[]
+  events      AuctionEvent[]
+
+  @@map("users")
+}
+
+model AuctionRoom {
+  id                  String           @id @default(uuid())
+  title               String           @default("Narayana Guru Premiere League")
+  roomCode            String           @unique
+  description         String?
+  status              RoomStatus       @default(WAITING)
+  ownerId             String
+  owner               User             @relation("RoomOwner", fields: [ownerId], references: [id], onDelete: Cascade)
+  
+  startingPurse       Float            @default(5000)
+  minBasePrice        Float            @default(50)
+  defaultBidIncrement Float            @default(50)
+  timerDuration       Int              @default(30)
+  expectedTeamsCount  Int              @default(4)
+  playersPerTeam      Int              @default(8)     // 7 on court + 1 substitute
+  minSquadSize        Int              @default(8)
+  maxSquadSize        Int              @default(8)
+  
+  createdAt           DateTime         @default(now())
+  updatedAt           DateTime         @updatedAt
+
+  memberships         RoomMembership[]
+  teams               Team[]
+  players             Player[]
+  auctions            Auction[]
+  events              AuctionEvent[]
+
+  @@index([ownerId])
+  @@index([roomCode])
+  @@map("auction_rooms")
+}
+
+model RoomMembership {
+  id        String      @id @default(uuid())
+  roomId    String
+  room      AuctionRoom @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  userId    String
+  user      User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role      RoomRole    @default(VIEWER)
+  isReady   Boolean     @default(false)
+  joinedAt  DateTime    @default(now())
+
+  @@unique([roomId, userId])
+  @@index([roomId])
+  @@index([userId])
+  @@map("room_memberships")
+}
+
+model Team {
+  id                 String          @id @default(uuid())
+  roomId             String
+  room               AuctionRoom     @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  ownerId            String
+  owner              User            @relation("TeamOwner", fields: [ownerId], references: [id], onDelete: Cascade)
+  
+  name               String
+  code               String?
+  logoUrl            String?
+  color              String?         @default("#3B82F6")
+  totalPurse         Float           @default(5000)
+  remainingPurse     Float           @default(5000)
+  isReady            Boolean         @default(false)
+
+  // 1 Main Fixed Player per Team
+  mainPlayerName     String?
+  mainPlayerPhotoUrl String?
+  mainPlayerPosition PlayerPosition? @default(ALL_ROUNDER)
+  
+  createdAt          DateTime        @default(now())
+  updatedAt          DateTime        @updatedAt
+
+  squad              AuctionPlayer[] @relation("WinningTeamSquad")
+  bids               Bid[]
+  highestBidAuctions Auction[]       @relation("CurrentHighestBidder")
+
+  @@unique([roomId, name])
+  @@unique([roomId, ownerId])
+  @@index([roomId])
+  @@index([ownerId])
+  @@map("teams")
+}
+
+model Player {
+  id             String          @id @default(uuid())
+  roomId         String
+  room           AuctionRoom     @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  
+  name           String
+  photoUrl       String?
+  position       PlayerPosition  @default(ALL_ROUNDER)
+  
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
+
+  auctionPlayers AuctionPlayer[]
+
+  @@index([roomId])
+  @@index([position])
+  @@map("players")
+}
+
+model Auction {
+  id                     String          @id @default(uuid())
+  roomId                 String
+  room                   AuctionRoom     @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  status                 AuctionState    @default(SCHEDULED)
+  
+  currentAuctionPlayerId String?         @unique
+  currentAuctionPlayer   AuctionPlayer?  @relation("CurrentLot", fields: [currentAuctionPlayerId], references: [id], onDelete: SetNull)
+  
+  currentBid             Float           @default(50)
+  currentHighestBidderId String?
+  currentHighestBidder   Team?           @relation("CurrentHighestBidder", fields: [currentHighestBidderId], references: [id], onDelete: SetNull)
+  
+  timerSeconds           Int             @default(30)
+  timerEndsAt            DateTime?
+  startedAt              DateTime?
+  endedAt                DateTime?
+  
+  createdAt              DateTime        @default(now())
+  updatedAt              DateTime        @updatedAt
+
+  auctionPlayers         AuctionPlayer[] @relation("AuctionRoster")
+  bids                   Bid[]
+  events                 AuctionEvent[]
+
+  @@index([roomId])
+  @@map("auctions")
+}
+
+model AuctionPlayer {
+  id            String              @id @default(uuid())
+  auctionId     String
+  auction       Auction             @relation("AuctionRoster", fields: [auctionId], references: [id], onDelete: Cascade)
+  playerId      String
+  player        Player              @relation(fields: [playerId], references: [id], onDelete: Cascade)
+  
+  status        AuctionPlayerStatus @default(UPCOMING)
+  basePrice     Float               @default(50)
+  finalPrice    Float?
+  lotNumber     Int?
+  soldAt        DateTime?
+  
+  winningTeamId String?
+  winningTeam   Team?               @relation("WinningTeamSquad", fields: [winningTeamId], references: [id], onDelete: SetNull)
+
+  currentInAuction Auction?         @relation("CurrentLot")
+  bids          Bid[]
+
+  @@unique([auctionId, playerId])
+  @@index([auctionId])
+  @@index([playerId])
+  @@index([winningTeamId])
+  @@index([status])
+  @@map("auction_players")
+}
+
+model Bid {
+  id              String        @id @default(uuid())
+  auctionId       String
+  auction         Auction       @relation(fields: [auctionId], references: [id], onDelete: Cascade)
+  auctionPlayerId String
+  auctionPlayer   AuctionPlayer @relation(fields: [auctionPlayerId], references: [id], onDelete: Cascade)
+  teamId          String
+  team            Team          @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  bidderId        String
+  bidder          User          @relation(fields: [bidderId], references: [id], onDelete: Cascade)
+  
+  amount          Float
+  timestamp       DateTime      @default(now())
+  isWinning       Boolean       @default(false)
+
+  @@index([auctionId])
+  @@index([auctionPlayerId, amount(sort: Desc)])
+  @@index([teamId])
+  @@map("bids")
+}
+
+model AuctionEvent {
+  id          String       @id @default(uuid())
+  roomId      String
+  room        AuctionRoom  @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  auctionId   String?
+  auction     Auction?     @relation(fields: [auctionId], references: [id], onDelete: SetNull)
+  
+  eventType   String
+  message     String
+  payload     Json?
+  
+  createdById String?
+  createdBy   User?        @relation(fields: [createdById], references: [id], onDelete: SetNull)
+  createdAt   DateTime     @default(now())
+
+  @@index([roomId, createdAt(sort: Desc)])
+  @@index([auctionId])
+  @@map("auction_events")
+}

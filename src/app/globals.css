@@ -1,0 +1,102 @@
+@import "tailwindcss";
+
+@layer base {
+  :root {
+    --background: #060913;
+    --foreground: #f8fafc;
+  }
+}
+
+body {
+  background-color: #060913;
+  color: #f8fafc;
+  font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Oxygen, Ubuntu, Cantarell, "Helvetica Neue", sans-serif;
+  overflow-x: hidden;
+}
+
+/* Custom Sports Arena Glows and Accents */
+.arena-court-bg {
+  background-color: #070b16;
+  background-image: 
+    radial-gradient(ellipse at 50% 15%, rgba(245, 158, 11, 0.12) 0%, transparent 60%),
+    radial-gradient(circle at 10% 25%, rgba(59, 130, 246, 0.08) 0%, transparent 40%),
+    radial-gradient(circle at 90% 25%, rgba(168, 85, 247, 0.08) 0%, transparent 40%),
+    linear-gradient(to right, rgba(255, 255, 255, 0.02) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(255, 255, 255, 0.02) 1px, transparent 1px);
+  background-size: 100% 100%, 100% 100%, 100% 100%, 36px 36px, 36px 36px;
+}
+
+.court-net-pattern {
+  background-image: 
+    repeating-linear-gradient(0deg, rgba(255, 255, 255, 0.04) 0px, rgba(255, 255, 255, 0.04) 1px, transparent 1px, transparent 20px),
+    repeating-linear-gradient(90deg, rgba(255, 255, 255, 0.04) 0px, rgba(255, 255, 255, 0.04) 1px, transparent 1px, transparent 20px);
+}
+
+/* Team Card Glowing Borders matching reference */
+.glow-amber-team {
+  box-shadow: 0 0 25px -4px rgba(245, 158, 11, 0.35);
+  border: 1.5px solid rgba(245, 158, 11, 0.7);
+}
+
+.glow-blue-team {
+  box-shadow: 0 0 25px -4px rgba(59, 130, 246, 0.35);
+  border: 1.5px solid rgba(59, 130, 246, 0.7);
+}
+
+.glow-purple-team {
+  box-shadow: 0 0 25px -4px rgba(168, 85, 247, 0.35);
+  border: 1.5px solid rgba(168, 85, 247, 0.7);
+}
+
+.glow-teal-team {
+  box-shadow: 0 0 25px -4px rgba(20, 184, 166, 0.35);
+  border: 1.5px solid rgba(20, 184, 166, 0.7);
+}
+
+/* Current Bid 3D Trapezoid Plinth */
+.bid-plinth-trapezoid {
+  background: linear-gradient(180deg, #d97706 0%, #b45309 60%, #78350f 100%);
+  box-shadow: 
+    0 10px 25px -5px rgba(245, 158, 11, 0.5),
+    inset 0 1px 1px 0 rgba(255, 255, 255, 0.4);
+  position: relative;
+}
+
+.bid-plinth-trapezoid::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.8), transparent);
+}
+
+/* Custom Scrollbar */
+::-webkit-scrollbar {
+  width: 5px;
+  height: 5px;
+}
+
+::-webkit-scrollbar-track {
+  background: #090d16;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #1e293b;
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #334155;
+}
+
+@keyframes pulse-ring {
+  0% { transform: scale(0.95); opacity: 0.8; }
+  50% { transform: scale(1.05); opacity: 0.4; }
+  100% { transform: scale(0.95); opacity: 0.8; }
+}
+
+.animate-pulse-ring {
+  animation: pulse-ring 2s infinite ease-in-out;
+}
