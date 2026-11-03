@@ -3,9 +3,11 @@
 import { use, useEffect, useState, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
+import Image from "next/image";
 import Navbar from "@/components/Navbar";
 import WaitingRoomRoster from "@/components/WaitingRoomRoster";
 import { getSupabaseClient } from "@/lib/supabase/client";
+import type { RealtimeChannel } from "@supabase/supabase-js";
 import { Copy, Check, Users, UserPlus, Radio, Loader2 } from "lucide-react";
 import { RoomDetails, SessionUser } from "@/types";
 
@@ -47,12 +49,49 @@ export default function WaitingRoomPage({ params }: { params: Promise<{ code: st
 
     fetchRoom();
 
-    // Supabase Realtime subscription
-    const supabase = getSupabaseClient();
-    if (supabase) {
-      const channel = supabase.channel(`auction_${code}`);
+    // 1. Fast SSE listener
+    let eventSource: EventSource | null = null;
+    try {
+      eventSource = new EventSource(`/api/auction/${code}/stream`);
 
-      channel
+      eventSource.addEventListener("TEAM_JOINED", () => {
+        fetchRoom();
+      });
+
+      eventSource.addEventListener("TEAM_READY_TOGGLED", (e: MessageEvent) => {
+        try {
+          const payload = JSON.parse(e.data);
+          if (payload?.teamId && payload?.isReady !== undefined) {
+            setRoom((prev) => {
+              if (!prev) return prev;
+              return {
+                ...prev,
+                teams: prev.teams.map((t) =>
+                  t.id === payload.teamId ? { ...t, isReady: payload.isReady } : t
+                ),
+              };
+            });
+          }
+        } catch {}
+        fetchRoom();
+      });
+
+      eventSource.addEventListener("AUCTION_LAUNCHED", () => {
+        router.push(`/room/${code}/live`);
+      });
+
+      eventSource.addEventListener("PLAYER_ADDED", () => {
+        fetchRoom();
+      });
+    } catch {}
+
+    // 2. Supabase Realtime subscription
+    const supabaseClient = getSupabaseClient();
+    let supabaseChannel: RealtimeChannel | null = null;
+    if (supabaseClient) {
+      supabaseChannel = supabaseClient.channel(`auction_${code}`);
+
+      supabaseChannel
         .on("broadcast", { event: "TEAM_JOINED" }, () => {
           fetchRoom();
         })
@@ -79,15 +118,16 @@ export default function WaitingRoomPage({ params }: { params: Promise<{ code: st
           fetchRoom();
         })
         .subscribe();
-
-      return () => {
-        supabase.removeChannel(channel);
-      };
-    } else {
-      // Fallback polling if Supabase keys are pending
-      const interval = setInterval(fetchRoom, 2000);
-      return () => clearInterval(interval);
     }
+
+    // 3. 800ms Fast Polling fallback
+    const interval = setInterval(fetchRoom, 800);
+
+    return () => {
+      clearInterval(interval);
+      if (eventSource) eventSource.close();
+      if (supabaseClient && supabaseChannel) supabaseClient.removeChannel(supabaseChannel);
+    };
   }, [code, fetchRoom, router]);
 
   const isAuctioneer = currentUser?.id === room?.ownerId;
@@ -153,22 +193,36 @@ export default function WaitingRoomPage({ params }: { params: Promise<{ code: st
   }
 
   return (
-    <div className="min-h-screen bg-[#070b16] text-slate-100 flex flex-col arena-court-bg">
-      <Navbar roomCode={code} roomTitle={room?.title} roomStatus={room?.status} activeTab="rooms" />
+    <div className="min-h-screen bg-[#060913] text-slate-100 flex flex-col relative overflow-x-hidden">
+      {/* 1. CINEMATIC VOLLEYBALL STADIUM ARENA BACKGROUND */}
+      <div className="fixed inset-0 z-0 pointer-events-none">
+        <Image
+          src="/images/npl-dashboard-bg.jpg"
+          alt="Volleyball Arena Stadium"
+          fill
+          priority
+          className="object-cover object-center opacity-25 brightness-80 contrast-125 scale-105"
+        />
+        <div className="absolute inset-0 bg-gradient-to-b from-[#060913]/95 via-[#070b18]/85 to-[#060913]/98" />
+        <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_center,_transparent_20%,_rgba(4,7,16,0.95)_85%)]" />
+      </div>
 
-      <div className="flex-1 max-w-7xl mx-auto w-full px-4 sm:px-6 lg:px-8 py-8 space-y-6">
+      <div className="relative z-10 flex flex-col min-h-screen">
+        <Navbar roomCode={code} roomTitle={room?.title} roomStatus={room?.status} activeTab="rooms" />
+
+      <div className="flex-1 max-w-7xl mx-auto w-full px-3 sm:px-6 lg:px-8 py-4 sm:py-8 space-y-4 sm:space-y-6">
         {/* Banner with Share Link and Controls */}
-        <div className="rounded-2xl border border-slate-800 bg-[#090e1c]/90 p-6 shadow-xl backdrop-blur-md flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
+        <div className="rounded-2xl border border-slate-800 bg-[#090e1c]/90 p-4 sm:p-6 shadow-xl backdrop-blur-md flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
           <div>
             <div className="flex items-center gap-2">
-              <span className="font-mono text-xs font-black text-amber-400 tracking-wider">
+              <span className="font-mono text-[11px] sm:text-xs font-black text-amber-400 tracking-wider">
                 ROOM CODE: {code}
               </span>
-              <span className="inline-flex items-center gap-1 rounded-lg bg-amber-500/15 px-2.5 py-0.5 text-[10px] font-black text-amber-400 border border-amber-500/30">
+              <span className="inline-flex items-center gap-1 rounded-lg bg-amber-500/15 px-2 py-0.5 text-[9px] sm:text-[10px] font-black text-amber-400 border border-amber-500/30">
                 WAITING ROOM
               </span>
             </div>
-            <h1 className="text-2xl sm:text-3xl font-black text-white mt-1">
+            <h1 className="text-xl sm:text-2xl lg:text-3xl font-black text-white mt-1">
               {room?.title}
             </h1>
             <p className="text-xs text-slate-400 mt-0.5">
@@ -176,37 +230,37 @@ export default function WaitingRoomPage({ params }: { params: Promise<{ code: st
             </p>
           </div>
 
-          <div className="flex flex-wrap items-center gap-3">
+          <div className="flex flex-wrap items-center gap-2 sm:gap-3 w-full sm:w-auto">
             <button
               onClick={copyInviteLink}
-              className="flex items-center gap-2 rounded-xl bg-slate-900 px-4 py-2.5 text-xs font-bold text-slate-200 hover:bg-slate-800 border border-slate-800 transition-colors"
+              className="flex-1 sm:flex-initial flex items-center justify-center gap-1.5 sm:gap-2 rounded-xl bg-slate-900 px-3 sm:px-4 py-2 sm:py-2.5 text-xs font-bold text-slate-200 hover:bg-slate-800 border border-slate-800 transition-colors"
             >
-              {copied ? <Check className="h-4 w-4 text-emerald-400" /> : <Copy className="h-4 w-4 text-amber-400" />}
-              <span>{copied ? "Link Copied!" : "Copy Invite Link"}</span>
+              {copied ? <Check className="h-3.5 w-3.5 text-emerald-400" /> : <Copy className="h-3.5 w-3.5 text-amber-400" />}
+              <span>{copied ? "Copied!" : "Invite Link"}</span>
             </button>
 
             <Link
               href={`/room/${code}/players`}
-              className="flex items-center gap-2 rounded-xl bg-slate-900 px-4 py-2.5 text-xs font-bold text-slate-200 hover:bg-slate-800 border border-slate-800 transition-colors"
+              className="flex-1 sm:flex-initial flex items-center justify-center gap-1.5 sm:gap-2 rounded-xl bg-slate-900 px-3 sm:px-4 py-2 sm:py-2.5 text-xs font-bold text-slate-200 hover:bg-slate-800 border border-slate-800 transition-colors"
             >
-              <UserPlus className="h-4 w-4 text-cyan-400" />
-              <span>Roster & Players ({room?.players.length || 0})</span>
+              <UserPlus className="h-3.5 w-3.5 text-cyan-400" />
+              <span>Roster ({room?.players.length || 0})</span>
             </Link>
 
             {!currentTeam && !isAuctioneer && (
               <Link
                 href={`/room/${code}/join`}
-                className="flex items-center gap-2 rounded-xl bg-amber-500 px-4 py-2.5 text-xs font-black text-slate-950 hover:bg-amber-400 transition-colors shadow-md shadow-amber-500/20"
+                className="w-full sm:w-auto flex items-center justify-center gap-1.5 sm:gap-2 rounded-xl bg-amber-500 px-4 py-2 sm:py-2.5 text-xs font-black text-slate-950 hover:bg-amber-400 transition-colors shadow-md shadow-amber-500/20"
               >
                 <Users className="h-4 w-4" />
-                <span>Register Your Team</span>
+                <span>Register Team</span>
               </Link>
             )}
           </div>
         </div>
 
         {error && (
-          <div className="rounded-xl bg-rose-500/10 p-4 text-xs font-semibold text-rose-400 border border-rose-500/20">
+          <div className="rounded-xl bg-rose-500/10 p-3.5 text-xs font-semibold text-rose-400 border border-rose-500/20">
             {error}
           </div>
         )}
@@ -224,6 +278,7 @@ export default function WaitingRoomPage({ params }: { params: Promise<{ code: st
           launching={launching}
           auctioneerName={room?.owner.name || "Auctioneer"}
         />
+      </div>
       </div>
     </div>
   );

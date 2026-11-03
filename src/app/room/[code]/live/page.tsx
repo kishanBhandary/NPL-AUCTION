@@ -7,6 +7,7 @@ import Navbar from "@/components/Navbar";
 import { fireConfetti } from "@/components/ConfettiBlast";
 import { sounds } from "@/components/SoundEffects";
 import { getSupabaseClient } from "@/lib/supabase/client";
+import type { RealtimeChannel } from "@supabase/supabase-js";
 import { formatCurrency, getPositionBadge } from "@/lib/utils";
 import { SessionUser, AuctionPlayerDetails, BidDetails, TeamDetails } from "@/types";
 import {
@@ -129,6 +130,9 @@ export default function LiveAuctionPage({ params }: { params: Promise<{ code: st
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [selectedBidIncrement, setSelectedBidIncrement] = useState<number>(50);
 
+  // Mobile Bottom Tab state: 'queue' | 'activity' | 'status'
+  const [mobileBottomTab, setMobileBottomTab] = useState<"queue" | "activity" | "status">("queue");
+
   // Sold Celebration Modal state
   const [soldCelebration, setSoldCelebration] = useState<SoldCelebrationData | null>(null);
   const [celebrationSeconds, setCelebrationSeconds] = useState<number>(6);
@@ -171,6 +175,7 @@ export default function LiveAuctionPage({ params }: { params: Promise<{ code: st
   // Timer Countdown state in seconds
   const [secondsRemaining, setSecondsRemaining] = useState<number>(30);
   const queueScrollRef = useRef<HTMLDivElement>(null);
+  const lastKnownPlayerIdRef = useRef<string | null>(null);
 
   // Fetch full live snapshot
   const fetchAuctionState = useCallback(async () => {
@@ -180,6 +185,7 @@ export default function LiveAuctionPage({ params }: { params: Promise<{ code: st
       if (data.room) {
         setRoom(data.room);
         setAuction(data.auction);
+        lastKnownPlayerIdRef.current = data.auction?.currentAuctionPlayerId || null;
         setCurrentLotBids(data.currentLotBids || []);
         setTeams(data.teams || []);
         setUpcomingPlayers(data.upcomingPlayers || []);
@@ -222,22 +228,111 @@ export default function LiveAuctionPage({ params }: { params: Promise<{ code: st
 
     fetchAuctionState();
 
-    // Supabase Realtime Listener
-    const supabase = getSupabaseClient();
-    if (supabase) {
-      const channel = supabase.channel(`auction_${code}`);
+    // 1. FAST REAL-TIME: Server-Sent Events (SSE) Listener (<20ms latency)
+    let eventSource: EventSource | null = null;
+    try {
+      eventSource = new EventSource(`/api/auction/${code}/stream`);
 
-      channel
+      eventSource.addEventListener("BID_PLACED", (e: MessageEvent) => {
+        try {
+          const payload = JSON.parse(e.data);
+          const { bid, currentBid, highestBidder, timerEndsAt } = payload;
+
+          setAuction((prev) => {
+            if (!prev) return prev;
+            return {
+              ...prev,
+              currentBid: currentBid ?? prev.currentBid,
+              currentHighestBidderId: highestBidder?.id || prev.currentHighestBidderId,
+              currentHighestBidder: highestBidder || prev.currentHighestBidder,
+              timerEndsAt: timerEndsAt || prev.timerEndsAt,
+            };
+          });
+
+          if (bid) {
+            setCurrentLotBids((prev) => [bid, ...prev.filter((b) => b.id !== bid.id)]);
+          }
+
+          if (highestBidder) {
+            setTeams((prev) =>
+              prev.map((t) =>
+                t.id === highestBidder.id
+                  ? { ...t, remainingPurse: highestBidder.remainingPurse }
+                  : t
+              )
+            );
+          }
+
+          if (soundEnabled) sounds.playBid();
+        } catch {}
+      });
+
+      eventSource.addEventListener("PLAYER_CALLED", () => {
+        setSoldCelebration(null);
+        fetchAuctionState();
+        if (soundEnabled) sounds.playTick();
+      });
+
+      eventSource.addEventListener("BIDDING_STARTED", () => {
+        fetchAuctionState();
+      });
+
+      eventSource.addEventListener("PLAYER_SOLD", (e: MessageEvent) => {
+        try {
+          const p = JSON.parse(e.data);
+          if (p) {
+            triggerSoldCelebration({
+              playerName: p.soldPlayer?.player?.name || "Player",
+              photoUrl: p.soldPlayer?.player?.photoUrl || null,
+              position: p.soldPlayer?.player?.position,
+              winningTeamName: p.winningTeam?.name || "Winning Team",
+              winningTeamLogo: p.winningTeam?.logoUrl || null,
+              finalPrice: p.finalPrice || 0,
+            });
+          }
+        } catch {}
+        fetchAuctionState();
+      });
+
+      eventSource.addEventListener("PLAYER_UNSOLD", () => {
+        fetchAuctionState();
+      });
+
+      eventSource.addEventListener("TIMER_RESET", () => {
+        fetchAuctionState();
+      });
+    } catch {
+      // SSE not supported or blocked
+    }
+
+    // 2. SUPABASE REALTIME (if configured)
+    const supabaseClient = getSupabaseClient();
+    let supabaseChannel: RealtimeChannel | null = null;
+    if (supabaseClient) {
+      supabaseChannel = supabaseClient.channel(`auction_${code}`);
+      supabaseChannel
         .on("broadcast", { event: "PLAYER_CALLED" }, () => {
           setSoldCelebration(null);
           fetchAuctionState();
           if (soundEnabled) sounds.playTick();
         })
-        .on("broadcast", { event: "BIDDING_STARTED" }, () => {
-          fetchAuctionState();
-        })
-        .on("broadcast", { event: "BID_PLACED" }, () => {
-          fetchAuctionState();
+        .on("broadcast", { event: "BID_PLACED" }, (payload) => {
+          const p = payload?.payload;
+          if (p) {
+            setAuction((prev) => {
+              if (!prev) return prev;
+              return {
+                ...prev,
+                currentBid: p.currentBid ?? prev.currentBid,
+                currentHighestBidderId: p.highestBidder?.id || prev.currentHighestBidderId,
+                currentHighestBidder: p.highestBidder || prev.currentHighestBidder,
+                timerEndsAt: p.timerEndsAt || prev.timerEndsAt,
+              };
+            });
+            if (p.bid) {
+              setCurrentLotBids((prev) => [p.bid, ...prev.filter((b) => b.id !== p.bid.id)]);
+            }
+          }
           if (soundEnabled) sounds.playBid();
         })
         .on("broadcast", { event: "PLAYER_SOLD" }, (payload) => {
@@ -261,14 +356,64 @@ export default function LiveAuctionPage({ params }: { params: Promise<{ code: st
           fetchAuctionState();
         })
         .subscribe();
-
-      return () => {
-        supabase.removeChannel(channel);
-      };
-    } else {
-      const interval = setInterval(fetchAuctionState, 1500);
-      return () => clearInterval(interval);
     }
+
+    // 3. ULTRA-FAST DELTA SYNC POLLER (400ms Heartbeat Fallback)
+    const deltaSyncInterval = setInterval(async () => {
+      try {
+        const res = await fetch(`/api/auction/${code}/sync`);
+        if (!res.ok) return;
+        const data = await res.json();
+
+        if (data.auction) {
+          // If player lot changed, trigger full state refresh
+          if (
+            lastKnownPlayerIdRef.current &&
+            data.auction.currentAuctionPlayerId !== lastKnownPlayerIdRef.current
+          ) {
+            fetchAuctionState();
+            return;
+          }
+
+          // Ultra-fast local state sync
+          setAuction((prev) => {
+            if (!prev) return prev;
+            if (
+              prev.currentBid === data.auction.currentBid &&
+              prev.currentHighestBidderId === data.auction.currentHighestBidderId &&
+              prev.timerEndsAt === data.auction.timerEndsAt
+            ) {
+              return prev;
+            }
+            return {
+              ...prev,
+              currentBid: data.auction.currentBid,
+              currentHighestBidderId: data.auction.currentHighestBidderId,
+              currentHighestBidder: data.auction.currentHighestBidder,
+              timerEndsAt: data.auction.timerEndsAt,
+              status: data.auction.status,
+            };
+          });
+
+          if (data.latestBids && data.latestBids.length > 0) {
+            setCurrentLotBids((prev) => {
+              const prevIds = new Set(prev.map((b) => b.id));
+              const newBids = data.latestBids.filter((b: BidDetails) => !prevIds.has(b.id));
+              if (newBids.length > 0) {
+                return [...newBids, ...prev];
+              }
+              return prev;
+            });
+          }
+        }
+      } catch {}
+    }, 400);
+
+    return () => {
+      clearInterval(deltaSyncInterval);
+      if (eventSource) eventSource.close();
+      if (supabaseClient && supabaseChannel) supabaseClient.removeChannel(supabaseChannel);
+    };
   }, [code, fetchAuctionState, soundEnabled, triggerSoldCelebration]);
 
   // Congratulations celebration timer ticker
@@ -300,7 +445,7 @@ export default function LiveAuctionPage({ params }: { params: Promise<{ code: st
       const endsAt = new Date(auction.timerEndsAt!).getTime();
       const diff = Math.max(0, Math.ceil((endsAt - Date.now()) / 1000));
       setSecondsRemaining(diff);
-    }, 250);
+    }, 200);
 
     return () => clearInterval(interval);
   }, [auction?.timerEndsAt, room?.timerDuration]);
@@ -427,11 +572,57 @@ export default function LiveAuctionPage({ params }: { params: Promise<{ code: st
     } catch {}
   };
 
-  // Team Owner Bidding
+  // Team Owner Bidding with OPTIMISTIC 0MS INSTANT UI UPDATE
   const handlePlaceBid = async (customAmount?: number) => {
-    if (!isTeamOwner || isAuctioneer) return;
+    if (!isTeamOwner || isAuctioneer || !userTeam) return;
     const amountToBid = customAmount || nextCalculatedBid;
     setErrorMsg(null);
+
+    // 1. Snapshot previous state for rollback
+    const prevAuction = auction ? { ...auction } : null;
+    const prevBids = [...currentLotBids];
+    const prevTeams = [...teams];
+
+    // 2. OPTIMISTIC INSTANT UPDATE (0ms delay)
+    const newTimerEndsAt = new Date(Date.now() + (room?.timerDuration || 30) * 1000).toISOString();
+    setAuction((prev) => {
+      if (!prev) return prev;
+      return {
+        ...prev,
+        currentBid: amountToBid,
+        currentHighestBidderId: userTeam.id,
+        currentHighestBidder: {
+          id: userTeam.id,
+          name: userTeam.name,
+          code: userTeam.code,
+          logoUrl: userTeam.logoUrl,
+          color: userTeam.color,
+          remainingPurse: userTeam.remainingPurse,
+        } as unknown as TeamDetails,
+        timerEndsAt: newTimerEndsAt,
+      };
+    });
+
+    const optimisticBid = {
+      id: "opt-" + Date.now(),
+      amount: amountToBid,
+      timestamp: new Date().toISOString(),
+      teamId: userTeam.id,
+      team: {
+        id: userTeam.id,
+        name: userTeam.name,
+        code: userTeam.code,
+        logoUrl: userTeam.logoUrl,
+        color: userTeam.color,
+      },
+      bidder: {
+        id: currentUser?.id || "temp",
+        name: currentUser?.name || "You",
+      },
+    } as unknown as BidDetails;
+    setCurrentLotBids((prev) => [optimisticBid, ...prev]);
+
+    if (soundEnabled) sounds.playBid();
     setBiddingLoading(true);
 
     try {
@@ -443,13 +634,32 @@ export default function LiveAuctionPage({ params }: { params: Promise<{ code: st
 
       const data = await res.json();
       if (!res.ok) {
+        // Rollback optimistic state on server error
         setErrorMsg(data.error || "Failed to place bid");
+        setAuction(prevAuction);
+        setCurrentLotBids(prevBids);
+        setTeams(prevTeams);
       } else {
-        sounds.playBid();
-        fetchAuctionState();
+        // Confirm server data
+        if (data.currentBid && data.highestBidder) {
+          setAuction((prev) =>
+            prev
+              ? {
+                  ...prev,
+                  currentBid: data.currentBid,
+                  currentHighestBidderId: data.highestBidder.id,
+                  currentHighestBidder: data.highestBidder,
+                  timerEndsAt: data.timerEndsAt,
+                }
+              : prev
+          );
+        }
       }
     } catch {
       setErrorMsg("Network error placing bid");
+      setAuction(prevAuction);
+      setCurrentLotBids(prevBids);
+      setTeams(prevTeams);
     } finally {
       setBiddingLoading(false);
     }
@@ -482,7 +692,12 @@ export default function LiveAuctionPage({ params }: { params: Promise<{ code: st
   const team3 = teams[2] || null;
   const team4 = teams[3] || null;
 
-  const renderTeamCard = (team: TeamWithSquad | null, themeIndex: number, positionLabel: string) => {
+  const renderTeamCard = (
+    team: TeamWithSquad | null,
+    themeIndex: number,
+    positionLabel: string,
+    isMobileCompact = false
+  ) => {
     const theme = TEAM_THEMES[themeIndex % TEAM_THEMES.length];
     const isCurrentHighest = Boolean(team && auction?.currentHighestBidderId === team.id);
 
@@ -492,10 +707,16 @@ export default function LiveAuctionPage({ params }: { params: Promise<{ code: st
 
     if (!team) {
       return (
-        <div className="rounded-2xl border border-dashed border-slate-800/80 bg-slate-900/30 p-4 min-h-[145px] flex flex-col items-center justify-center text-center">
-          <Shield className="h-6 w-6 text-slate-700 mb-1" />
-          <p className="text-xs font-bold text-slate-500">Franchise Slot {positionLabel}</p>
-          <span className="text-[10px] text-slate-600">Waiting for team to join</span>
+        <div
+          className={`rounded-2xl border border-dashed border-slate-800/80 bg-slate-900/30 flex flex-col items-center justify-center text-center ${
+            isMobileCompact ? "p-2.5 min-h-[90px]" : "p-4 min-h-[145px]"
+          }`}
+        >
+          <Shield className="h-5 w-5 text-slate-700 mb-1" />
+          <p className="text-[10px] sm:text-xs font-bold text-slate-500">
+            Franchise Slot {positionLabel}
+          </p>
+          <span className="text-[9px] text-slate-600">Awaiting team</span>
         </div>
       );
     }
@@ -504,16 +725,20 @@ export default function LiveAuctionPage({ params }: { params: Promise<{ code: st
 
     return (
       <div
-        className={`rounded-2xl p-4 transition-all duration-300 relative bg-[#090e1c]/90 backdrop-blur-md ${
+        className={`rounded-2xl transition-all duration-300 relative bg-[#090e1c]/90 backdrop-blur-md ${
+          isMobileCompact ? "p-2.5 sm:p-3" : "p-4"
+        } ${
           isCurrentHighest
-            ? "glow-amber-team border-2 border-amber-400 scale-[1.02]"
+            ? "glow-amber-team border-2 border-amber-400 scale-[1.01]"
             : `${theme.glowClass} bg-[#090e1c]/90`
         }`}
       >
-        <div className="flex items-start justify-between gap-2">
-          <div className="flex items-center gap-3 min-w-0">
+        <div className="flex items-start justify-between gap-1.5">
+          <div className="flex items-center gap-2 min-w-0">
             <div
-              className="h-12 w-12 rounded-xl flex items-center justify-center text-lg font-black shrink-0 relative overflow-hidden shadow-lg border border-slate-700/60"
+              className={`rounded-xl flex items-center justify-center font-black shrink-0 relative overflow-hidden shadow-lg border border-slate-700/60 ${
+                isMobileCompact ? "h-9 w-9 text-sm" : "h-12 w-12 text-lg"
+              }`}
               style={{
                 backgroundColor: team.color ? `${team.color}20` : "#1e293b",
                 color: team.color || "#f8fafc",
@@ -533,59 +758,59 @@ export default function LiveAuctionPage({ params }: { params: Promise<{ code: st
             </div>
 
             <div className="min-w-0">
-              <h4 className="text-sm font-black text-white truncate tracking-wide">
+              <h4 className="text-xs sm:text-sm font-black text-white truncate tracking-wide">
                 {team.name}
               </h4>
-              <p className="text-[11px] text-slate-400 truncate">
-                Owner: <span className="text-slate-200">{team.owner?.name || "Franchise"}</span>
+              <p className="text-[10px] text-slate-400 truncate">
+                <span className="text-slate-200">{team.owner?.name || "Owner"}</span>
               </p>
-              <div className="flex items-center gap-1.5 mt-0.5">
-                <span className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse" />
-                <span className="text-[10px] font-bold text-emerald-400">Online</span>
+              <div className="flex items-center gap-1 mt-0.5">
+                <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                <span className="text-[9px] font-bold text-emerald-400">Online</span>
               </div>
             </div>
           </div>
 
-          <div className="flex flex-col items-end shrink-0 gap-1.5">
-            <div className="rounded-xl px-2.5 py-1 text-right bg-[#16122d] border border-purple-500/30">
-              <span className="text-[12px] font-black font-mono text-purple-300 block">
+          <div className="flex flex-col items-end shrink-0 gap-1">
+            <div className="rounded-lg px-2 py-0.5 text-right bg-[#16122d] border border-purple-500/30">
+              <span className="text-[11px] sm:text-xs font-black font-mono text-purple-300 block">
                 ₹{team.remainingPurse?.toLocaleString("en-IN")}
               </span>
-              <span className="text-[9px] font-bold uppercase tracking-wider text-purple-400/80">
+              <span className="text-[8px] font-bold uppercase tracking-wider text-purple-400/80">
                 Purse
               </span>
             </div>
 
-            {/* Clickable Won Players count on team card */}
+            {/* Clickable Won Players count */}
             <button
               type="button"
               onClick={() => setSelectedTeamSquad(team)}
-              className="text-[10px] font-bold text-amber-400 hover:text-amber-300 flex items-center gap-1 bg-amber-500/10 hover:bg-amber-500/20 px-2 py-0.5 rounded-lg border border-amber-500/25 transition-colors"
+              className="text-[9px] font-bold text-amber-400 hover:text-amber-300 flex items-center gap-1 bg-amber-500/10 hover:bg-amber-500/20 px-1.5 py-0.5 rounded border border-amber-500/25 transition-colors"
               title="Click to view players won by this team"
             >
-              <Trophy className="h-2.5 w-2.5" />
+              <Trophy className="h-2 w-2" />
               <span>{wonCount} Won</span>
             </button>
           </div>
         </div>
 
-        <div className="mt-3">
+        <div className="mt-2">
           {isCurrentHighest ? (
-            <div className="rounded-xl bg-gradient-to-r from-amber-500/20 via-orange-500/20 to-amber-500/20 p-2 text-center border border-amber-500/50 shadow-sm flex items-center justify-center gap-2">
-              <Flame className="h-3.5 w-3.5 text-amber-400 animate-bounce" />
-              <span className="text-xs font-black text-amber-300">
-                HOLDING HIGHEST BID (₹{auction?.currentBid?.toLocaleString("en-IN")})
+            <div className="rounded-lg bg-gradient-to-r from-amber-500/25 via-orange-500/25 to-amber-500/25 p-1.5 text-center border border-amber-500/60 shadow-sm flex items-center justify-center gap-1.5 animate-pulse">
+              <Flame className="h-3 w-3 text-amber-400" />
+              <span className="text-[10px] sm:text-xs font-black text-amber-300 uppercase tracking-tight">
+                TOP BID (₹{auction?.currentBid?.toLocaleString("en-IN")})
               </span>
             </div>
           ) : teamLatestBid ? (
-            <div className="rounded-xl bg-slate-950/80 p-2 text-center border border-slate-800 flex items-center justify-between px-3 text-xs">
-              <span className="text-slate-400 text-[11px]">Latest Bid:</span>
+            <div className="rounded-lg bg-slate-950/80 p-1.5 text-center border border-slate-800 flex items-center justify-between px-2 text-[10px]">
+              <span className="text-slate-400 text-[9px]">Last Bid:</span>
               <span className="font-mono font-black text-cyan-400">
                 ₹{teamLatestBid.amount.toLocaleString("en-IN")}
               </span>
             </div>
           ) : (
-            <div className="rounded-xl bg-slate-950/60 p-2 text-center border border-slate-900 text-xs font-medium text-slate-500">
+            <div className="rounded-lg bg-slate-950/50 p-1 text-center border border-slate-900/60 text-[9px] font-medium text-slate-500">
               No Bid Yet
             </div>
           )}
@@ -597,33 +822,54 @@ export default function LiveAuctionPage({ params }: { params: Promise<{ code: st
   const positionBadge = getPositionBadge(activeLot?.player.position || "ATTACKER");
 
   return (
-    <div className="min-h-screen bg-[#070b16] text-slate-100 flex flex-col arena-court-bg relative">
-      <Navbar
-        roomCode={code}
-        roomTitle={room?.title}
-        roomStatus="LIVE"
-        activeTab="live"
-      />
+    <div className="min-h-screen bg-[#060913] text-slate-100 flex flex-col relative pb-16 lg:pb-6 overflow-x-hidden">
+      {/* 1. CINEMATIC VOLLEYBALL STADIUM ARENA LIVE BACKGROUND */}
+      <div className="fixed inset-0 z-0 pointer-events-none">
+        <Image
+          src="/images/npl-dashboard-bg.jpg"
+          alt="Live Volleyball Arena Stadium"
+          fill
+          priority
+          className="object-cover object-center opacity-30 brightness-85 contrast-125 scale-105"
+        />
+        {/* Layered dark gradients for crystal-clear readability */}
+        <div className="absolute inset-0 bg-gradient-to-b from-[#060913]/95 via-[#070b18]/85 to-[#060913]/98" />
+        <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_center,_transparent_20%,_rgba(4,7,16,0.95)_85%)]" />
 
-      {/* SOLD CELEBRATION CONGRATULATIONS MODAL */}
+        {/* Ambient stadium floodlights */}
+        <div className="absolute -top-32 left-1/3 h-96 w-96 rounded-full bg-amber-500/10 blur-[140px] pointer-events-none" />
+        <div className="absolute top-1/2 -right-32 h-96 w-96 rounded-full bg-orange-600/10 blur-[140px] pointer-events-none" />
+      </div>
+
+      <div className="relative z-10 flex flex-col min-h-screen">
+        <Navbar
+          roomCode={code}
+          roomTitle={room?.title}
+          roomStatus={room ? "LIVE" : "WAITING"}
+          activeTab="live"
+        />
+
+      {/* SOLD CELEBRATION MODAL */}
       {soldCelebration && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/85 backdrop-blur-md p-4 animate-in fade-in zoom-in duration-300">
-          <div className="w-full max-w-lg rounded-3xl border-2 border-amber-400 bg-gradient-to-b from-[#10172e] to-[#070b16] p-6 sm:p-8 shadow-2xl text-center space-y-5 relative overflow-hidden">
-            <div className="absolute -top-20 -left-20 w-48 h-48 rounded-full bg-amber-500/20 blur-3xl pointer-events-none" />
-            <div className="absolute -bottom-20 -right-20 w-48 h-48 rounded-full bg-emerald-500/20 blur-3xl pointer-events-none" />
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/85 backdrop-blur-md p-4 animate-in fade-in zoom-in-95 duration-200">
+          <div className="relative w-full max-w-lg rounded-3xl border-2 border-amber-400/80 bg-gradient-to-b from-[#141204] via-[#090e1c] to-[#060913] p-6 text-center shadow-2xl shadow-amber-500/30 overflow-hidden">
+            <div className="absolute -top-24 -left-24 h-48 w-48 rounded-full bg-amber-500/20 blur-3xl pointer-events-none" />
+            <div className="absolute -bottom-24 -right-24 h-48 w-48 rounded-full bg-orange-500/20 blur-3xl pointer-events-none" />
 
-            <div className="space-y-1 relative z-10">
-              <div className="inline-flex items-center gap-2 rounded-full bg-amber-500/20 px-4 py-1 text-xs font-black text-amber-300 border border-amber-400/40">
-                <PartyPopper className="h-4 w-4 text-amber-400 animate-bounce" />
-                <span>CONGRATULATIONS! PLAYER SOLD</span>
-              </div>
-              <h2 className="text-2xl sm:text-3xl font-black text-white tracking-wide pt-1">
-                SOLD TO <span className="text-amber-400">{soldCelebration.winningTeamName}</span>!
-              </h2>
+            <div className="inline-flex items-center gap-1.5 rounded-full bg-amber-500/20 border border-amber-500/50 px-4 py-1 text-xs font-black text-amber-300 uppercase tracking-widest mb-3">
+              <PartyPopper className="h-4 w-4 text-amber-400 animate-bounce" />
+              <span>PLAYER SOLD! CONGRATULATIONS!</span>
             </div>
 
-            <div className="rounded-2xl bg-slate-950/80 border border-slate-800 p-4 flex items-center gap-4 relative z-10">
-              <div className="relative h-20 w-20 rounded-2xl overflow-hidden shrink-0 border-2 border-amber-400/80 bg-slate-900 shadow">
+            <h2 className="text-2xl sm:text-3xl font-black text-white tracking-tight">
+              SOLD TO{" "}
+              <span className="bg-gradient-to-r from-amber-400 via-orange-400 to-amber-500 bg-clip-text text-transparent">
+                {soldCelebration.winningTeamName}
+              </span>
+            </h2>
+
+            <div className="my-5 flex items-center justify-center gap-5">
+              <div className="relative h-24 w-24 sm:h-28 sm:w-28 rounded-2xl overflow-hidden border-2 border-amber-400 shadow-xl bg-slate-900 shrink-0">
                 {soldCelebration.photoUrl ? (
                   <Image
                     src={soldCelebration.photoUrl}
@@ -633,59 +879,55 @@ export default function LiveAuctionPage({ params }: { params: Promise<{ code: st
                     unoptimized
                   />
                 ) : (
-                  <div className="h-full w-full flex items-center justify-center text-amber-400">
-                    <User className="h-10 w-10" />
+                  <div className="h-full w-full flex items-center justify-center text-amber-400 font-black text-2xl">
+                    {soldCelebration.playerName.charAt(0)}
                   </div>
                 )}
               </div>
 
-              <div className="text-left flex-1 min-w-0">
-                <h4 className="text-lg font-black text-white truncate">
-                  {soldCelebration.playerName}
-                </h4>
-                {soldCelebration.position && (
-                  <span className="text-[10px] font-bold uppercase tracking-wider text-amber-400 px-2 py-0.5 rounded bg-amber-500/10 border border-amber-500/20 inline-block mt-0.5">
-                    {soldCelebration.position}
-                  </span>
-                )}
-                <div className="mt-2 flex items-center gap-2">
-                  <span className="text-xs text-slate-400">Winning Bid:</span>
-                  <span className="font-mono font-black text-lg text-emerald-400">
+              <div className="text-left space-y-1">
+                <span className="text-[10px] font-bold text-amber-400 uppercase tracking-wider block">
+                  {soldCelebration.position || "ALL_ROUNDER"}
+                </span>
+                <h3 className="text-xl font-black text-white">{soldCelebration.playerName}</h3>
+                <div className="pt-1">
+                  <span className="text-[10px] text-slate-400 block font-bold">Winning Bid Amount</span>
+                  <span className="text-2xl font-black font-mono text-emerald-400">
                     ₹{soldCelebration.finalPrice.toLocaleString("en-IN")}
                   </span>
                 </div>
               </div>
             </div>
 
-            <div className="rounded-xl bg-slate-900/90 border border-slate-800 p-3 flex items-center justify-between text-xs relative z-10">
-              <div className="flex items-center gap-2 text-slate-300">
-                <Clock className="h-4 w-4 text-amber-400 animate-spin" />
-                <span>Next Lot in: <strong className="text-amber-400 font-mono text-sm">{celebrationSeconds}s</strong></span>
-              </div>
-              <button
-                type="button"
-                onClick={() => setSoldCelebration(null)}
-                className="px-3 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-bold transition-colors"
-              >
-                Dismiss
-              </button>
+            <div className="rounded-xl bg-slate-950/70 border border-slate-800 p-3 flex items-center justify-between text-xs text-slate-300">
+              <span className="font-medium">Next player round starting in:</span>
+              <span className="font-mono font-black text-amber-400 text-sm">
+                00:0{celebrationSeconds}
+              </span>
             </div>
+
+            <button
+              type="button"
+              onClick={() => setSoldCelebration(null)}
+              className="mt-4 w-full rounded-xl bg-gradient-to-r from-amber-500 to-orange-500 py-2.5 text-xs font-black text-slate-950 hover:brightness-110 shadow-lg shadow-amber-500/20 transition-all"
+            >
+              Continue Auction
+            </button>
           </div>
         </div>
       )}
 
-      {/* WON SQUAD VIEWER MODAL */}
+      {/* TEAM WON SQUAD MODAL */}
       {selectedTeamSquad && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/85 backdrop-blur-md p-4 animate-in fade-in duration-200">
-          <div className="w-full max-w-2xl rounded-3xl border border-slate-800 bg-[#090e1d] p-6 shadow-2xl space-y-5 max-h-[85vh] flex flex-col">
-            {/* Header */}
-            <div className="flex items-start justify-between border-b border-slate-800/80 pb-4">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4 animate-in fade-in duration-150">
+          <div className="relative w-full max-w-2xl rounded-3xl border border-slate-800 bg-[#090e1c] p-5 sm:p-6 shadow-2xl flex flex-col max-h-[85vh]">
+            <div className="flex items-center justify-between border-b border-slate-800 pb-4 mb-4">
               <div className="flex items-center gap-3">
                 <div
-                  className="h-12 w-12 rounded-2xl flex items-center justify-center text-lg font-black shrink-0 relative overflow-hidden shadow border border-slate-700"
+                  className="h-12 w-12 rounded-xl flex items-center justify-center text-lg font-black border border-slate-700 overflow-hidden relative"
                   style={{
-                    backgroundColor: selectedTeamSquad.color ? `${selectedTeamSquad.color}20` : "#1e293b",
-                    color: selectedTeamSquad.color || "#f8fafc",
+                    backgroundColor: selectedTeamSquad.color ? `${selectedTeamSquad.color}30` : "#1e293b",
+                    color: selectedTeamSquad.color || "#fff",
                   }}
                 >
                   {selectedTeamSquad.logoUrl ? (
@@ -702,14 +944,14 @@ export default function LiveAuctionPage({ params }: { params: Promise<{ code: st
                 </div>
 
                 <div>
-                  <h3 className="text-lg font-black text-white flex items-center gap-2">
+                  <h3 className="text-base sm:text-lg font-black text-white flex items-center gap-2">
                     <span>{selectedTeamSquad.name}</span>
-                    <span className="text-xs font-bold text-amber-400 bg-amber-500/10 px-2 py-0.5 rounded border border-amber-500/20">
+                    <span className="text-[10px] sm:text-xs font-bold text-amber-400 bg-amber-500/10 px-2 py-0.5 rounded border border-amber-500/20">
                       Won Players
                     </span>
                   </h3>
                   <p className="text-xs text-slate-400">
-                    Owner: <strong className="text-slate-200">{selectedTeamSquad.owner?.name || "Franchise Owner"}</strong> • Remaining Purse: <span className="font-mono font-bold text-emerald-400">₹{selectedTeamSquad.remainingPurse?.toLocaleString("en-IN")}</span>
+                    Owner: <strong className="text-slate-200">{selectedTeamSquad.owner?.name || "Owner"}</strong> • Purse: <span className="font-mono font-bold text-emerald-400">₹{selectedTeamSquad.remainingPurse?.toLocaleString("en-IN")}</span>
                   </p>
                 </div>
               </div>
@@ -717,19 +959,19 @@ export default function LiveAuctionPage({ params }: { params: Promise<{ code: st
               <button
                 type="button"
                 onClick={() => setSelectedTeamSquad(null)}
-                className="rounded-xl bg-slate-900 border border-slate-800 p-2 text-slate-400 hover:text-white hover:bg-slate-800 transition-colors"
+                className="rounded-xl bg-slate-900 border border-slate-800 p-2 text-slate-400 hover:text-white transition-colors"
               >
                 ✕
               </button>
             </div>
 
             {/* List of Won Players */}
-            <div className="flex-1 overflow-y-auto space-y-2.5 pr-1">
-              {/* 1. Main Fixed Player if present */}
+            <div className="flex-1 overflow-y-auto space-y-2 pr-1">
+              {/* Main Fixed Player if present */}
               {selectedTeamSquad.mainPlayerName && (
-                <div className="rounded-2xl border border-amber-500/40 bg-gradient-to-r from-amber-500/10 via-slate-900 to-amber-500/10 p-3.5 flex items-center justify-between">
+                <div className="rounded-xl border border-amber-500/40 bg-gradient-to-r from-amber-500/10 via-slate-900 to-amber-500/10 p-3 flex items-center justify-between">
                   <div className="flex items-center gap-3">
-                    <div className="relative h-12 w-12 rounded-xl overflow-hidden bg-slate-900 border border-amber-400/60 shrink-0">
+                    <div className="relative h-11 w-11 rounded-lg overflow-hidden bg-slate-900 border border-amber-400/60 shrink-0">
                       {selectedTeamSquad.mainPlayerPhotoUrl ? (
                         <Image
                           src={selectedTeamSquad.mainPlayerPhotoUrl}
@@ -748,12 +990,12 @@ export default function LiveAuctionPage({ params }: { params: Promise<{ code: st
                     <div>
                       <div className="flex items-center gap-2">
                         <span className="text-sm font-black text-white">{selectedTeamSquad.mainPlayerName}</span>
-                        <span className="inline-flex items-center gap-1 text-[9px] font-black uppercase text-amber-300 bg-amber-500/20 px-2 py-0.5 rounded border border-amber-400/40">
-                          <Star className="h-3 w-3 fill-amber-400" />
+                        <span className="inline-flex items-center gap-1 text-[8px] font-black uppercase text-amber-300 bg-amber-500/20 px-1.5 py-0.5 rounded border border-amber-400/40">
+                          <Star className="h-2.5 w-2.5 fill-amber-400" />
                           MARQUEE RETENTION
                         </span>
                       </div>
-                      <p className="text-xs text-amber-400/90 font-medium">
+                      <p className="text-[11px] text-amber-400/90 font-medium">
                         {selectedTeamSquad.mainPlayerPosition || "ALL_ROUNDER"}
                       </p>
                     </div>
@@ -763,15 +1005,15 @@ export default function LiveAuctionPage({ params }: { params: Promise<{ code: st
                 </div>
               )}
 
-              {/* 2. Won Auction Players */}
+              {/* Won Auction Players */}
               {selectedTeamSquad.squad && selectedTeamSquad.squad.length > 0 ? (
                 selectedTeamSquad.squad.map((item, idx) => (
                   <div
                     key={item.id || idx}
-                    className="rounded-2xl border border-slate-800 bg-[#060913]/90 p-3.5 flex items-center justify-between hover:border-slate-700 transition-colors"
+                    className="rounded-xl border border-slate-800 bg-[#060913]/90 p-3 flex items-center justify-between hover:border-slate-700 transition-colors"
                   >
                     <div className="flex items-center gap-3">
-                      <div className="relative h-12 w-12 rounded-xl overflow-hidden bg-slate-900 border border-slate-700 shrink-0">
+                      <div className="relative h-11 w-11 rounded-lg overflow-hidden bg-slate-900 border border-slate-700 shrink-0">
                         {item.player.photoUrl ? (
                           <Image
                             src={item.player.photoUrl}
@@ -803,7 +1045,7 @@ export default function LiveAuctionPage({ params }: { params: Promise<{ code: st
                     </div>
 
                     <div className="text-right">
-                      <span className="text-[10px] uppercase font-bold text-slate-500 block">Winning Bid</span>
+                      <span className="text-[9px] uppercase font-bold text-slate-500 block">Winning Bid</span>
                       <span className="font-mono font-black text-sm text-emerald-400">
                         ₹{(item.finalPrice || 0).toLocaleString("en-IN")}
                       </span>
@@ -812,61 +1054,60 @@ export default function LiveAuctionPage({ params }: { params: Promise<{ code: st
                 ))
               ) : (
                 !selectedTeamSquad.mainPlayerName && (
-                  <div className="py-10 text-center space-y-2">
-                    <Trophy className="h-10 w-10 text-slate-600 mx-auto" />
-                    <p className="text-sm font-bold text-slate-300">No Players Won Yet</p>
-                    <p className="text-xs text-slate-500 max-w-sm mx-auto">
-                      Place bids on upcoming lots during the live auction to acquire athletes for your squad.
+                  <div className="py-8 text-center space-y-2">
+                    <Trophy className="h-8 w-8 text-slate-600 mx-auto" />
+                    <p className="text-xs font-bold text-slate-300">No Players Won Yet</p>
+                    <p className="text-[11px] text-slate-500 max-w-sm mx-auto">
+                      Place bids on active lots during live rounds to acquire athletes for your team.
                     </p>
                   </div>
                 )
               )}
             </div>
 
-            {/* Footer Summary */}
             <div className="border-t border-slate-800/80 pt-3 flex items-center justify-between text-xs">
               <span className="text-slate-400">
-                Total Squad Size: <strong className="text-white">{(selectedTeamSquad.squad?.length || 0) + (selectedTeamSquad.mainPlayerName ? 1 : 0)} Athletes</strong>
+                Squad Size: <strong className="text-white">{(selectedTeamSquad.squad?.length || 0) + (selectedTeamSquad.mainPlayerName ? 1 : 0)} Athletes</strong>
               </span>
 
               <button
                 type="button"
                 onClick={() => setSelectedTeamSquad(null)}
-                className="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-xs font-bold text-slate-200 transition-colors"
+                className="px-3.5 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-xs font-bold text-slate-200"
               >
-                Close Squad
+                Close
               </button>
             </div>
           </div>
         </div>
       )}
 
-      <main className="flex-1 max-w-[1700px] mx-auto w-full px-3 sm:px-6 lg:px-8 py-4 space-y-4">
+      <main className="flex-1 max-w-[1700px] mx-auto w-full px-2 sm:px-4 lg:px-8 py-2 sm:py-4 space-y-3 sm:space-y-4">
         {/* Error notification */}
         {errorMsg && (
-          <div className="rounded-xl bg-rose-500/15 p-3 text-xs font-bold text-rose-300 border border-rose-500/30 flex items-center justify-between">
+          <div className="rounded-xl bg-rose-500/15 p-2.5 sm:p-3 text-xs font-bold text-rose-300 border border-rose-500/30 flex items-center justify-between">
             <span>{errorMsg}</span>
             <button onClick={() => setErrorMsg(null)} className="text-rose-400 hover:text-white">✕</button>
           </div>
         )}
 
-        {/* Sub-header Bar: Center Title & Right 3 Stat Badges */}
-        <div className="flex flex-col md:flex-row items-center justify-between gap-4 pt-1">
-          <div className="hidden md:flex items-center gap-3">
+        {/* SUBHEADER BAR: Responsively scales from 360px phones to large desktops */}
+        <div className="flex flex-col md:flex-row items-center justify-between gap-2 sm:gap-4 pt-1">
+          <div className="flex items-center justify-between w-full md:w-auto gap-2">
             <button
               onClick={() => setSoundEnabled(!soundEnabled)}
               title={soundEnabled ? "Mute Arena Audio" : "Enable Arena Audio"}
-              className="flex items-center gap-1.5 rounded-xl bg-slate-900/80 px-3 py-1.5 text-xs font-bold text-slate-400 hover:text-white border border-slate-800"
+              className="flex items-center gap-1.5 rounded-xl bg-slate-900/80 px-2.5 sm:px-3 py-1.5 text-xs font-bold text-slate-400 hover:text-white border border-slate-800"
             >
               {soundEnabled ? (
                 <>
                   <Volume2 className="h-3.5 w-3.5 text-amber-400" />
-                  <span>Audio ON</span>
+                  <span className="text-[11px]">Audio ON</span>
                 </>
               ) : (
                 <>
                   <VolumeX className="h-3.5 w-3.5 text-slate-500" />
-                  <span>Muted</span>
+                  <span className="text-[11px]">Muted</span>
                 </>
               )}
             </button>
@@ -876,73 +1117,77 @@ export default function LiveAuctionPage({ params }: { params: Promise<{ code: st
               <button
                 type="button"
                 onClick={() => setSelectedTeamSquad(userTeam)}
-                className="flex items-center gap-1.5 rounded-xl bg-gradient-to-r from-purple-900/60 to-purple-800/60 hover:from-purple-900 hover:to-purple-800 text-purple-200 border border-purple-500/40 px-3 py-1.5 text-xs font-black transition-all shadow-md hover:scale-105"
+                className="flex items-center gap-1.5 rounded-xl bg-gradient-to-r from-purple-900/70 to-purple-800/70 text-purple-200 border border-purple-500/40 px-2.5 sm:px-3 py-1.5 text-xs font-black transition-all shadow-md hover:scale-105"
               >
-                <Trophy className="h-3.5 w-3.5 text-amber-400" />
-                <span>My Won Players ({(userTeam.squad?.length || 0) + (userTeam.mainPlayerName ? 1 : 0)})</span>
+                <Trophy className="h-3 w-3 text-amber-400" />
+                <span className="text-[11px]">My Won Players ({(userTeam.squad?.length || 0) + (userTeam.mainPlayerName ? 1 : 0)})</span>
               </button>
             )}
           </div>
 
           <div className="text-center">
-            <div className="inline-flex items-center gap-1.5 text-xs font-black uppercase tracking-widest text-amber-400 mb-0.5">
-              <Trophy className="h-3.5 w-3.5 text-amber-400" />
-              <span>NARAYANA GURU PREMIERE LEAGUE (NPL)</span>
+            <div className="inline-flex items-center gap-1 text-[10px] sm:text-xs font-black uppercase tracking-wider text-amber-400 mb-0.5">
+              <Trophy className="h-3 w-3 text-amber-400" />
+              <span>NARAYANA GURU PREMIERE LEAGUE</span>
             </div>
-            <h1 className="text-2xl sm:text-3xl lg:text-4xl font-black tracking-tight text-white">
+            <h1 className="text-xl sm:text-2xl lg:text-3xl font-black tracking-tight text-white">
               LIVE <span className="bg-gradient-to-r from-amber-400 via-orange-400 to-amber-500 bg-clip-text text-transparent">AUCTION ARENA</span>
             </h1>
-            <p className="text-xs text-slate-400 font-medium">
-              Real-time volleyball player auction
-            </p>
           </div>
 
-          <div className="flex items-center gap-2.5">
-            <div className="rounded-xl bg-[#0b1021] border border-slate-800 px-3.5 py-1.5 text-center min-w-[75px] shadow-md">
-              <span className="text-sm font-black font-mono text-white block">
+          {/* 3 Stat Badges: Base Price, Bid Increment, Team Purse */}
+          <div className="grid grid-cols-3 gap-1.5 sm:gap-2.5 w-full sm:w-auto">
+            <div className="rounded-xl bg-[#0b1021] border border-slate-800 px-2 sm:px-3.5 py-1 sm:py-1.5 text-center shadow-md">
+              <span className="text-xs sm:text-sm font-black font-mono text-white block">
                 ₹{room?.minBasePrice || 50}
               </span>
-              <span className="text-[9px] font-bold uppercase text-slate-400 block tracking-wider">
+              <span className="text-[8px] sm:text-[9px] font-bold uppercase text-slate-400 block tracking-wider">
                 Base Price
               </span>
             </div>
 
-            <div className="rounded-xl bg-[#0b1021] border border-slate-800 px-3.5 py-1.5 text-center min-w-[85px] shadow-md">
-              <span className="text-sm font-black font-mono text-white block">
+            <div className="rounded-xl bg-[#0b1021] border border-slate-800 px-2 sm:px-3.5 py-1 sm:py-1.5 text-center shadow-md">
+              <span className="text-xs sm:text-sm font-black font-mono text-cyan-400 block">
                 ₹{room?.defaultBidIncrement || 50}
               </span>
-              <span className="text-[9px] font-bold uppercase text-slate-400 block tracking-wider">
-                Bid Increment
+              <span className="text-[8px] sm:text-[9px] font-bold uppercase text-slate-400 block tracking-wider">
+                Increment
               </span>
             </div>
 
-            <div className="rounded-xl bg-[#0b1021] border border-slate-800 px-3.5 py-1.5 text-center min-w-[95px] shadow-md">
-              <span className="text-sm font-black font-mono text-emerald-400 block">
+            <div className="rounded-xl bg-[#0b1021] border border-slate-800 px-2 sm:px-3.5 py-1 sm:py-1.5 text-center shadow-md">
+              <span className="text-xs sm:text-sm font-black font-mono text-emerald-400 block">
                 ₹{room?.startingPurse?.toLocaleString("en-IN") || "5,000"}
               </span>
-              <span className="text-[9px] font-bold uppercase text-slate-400 block tracking-wider">
+              <span className="text-[8px] sm:text-[9px] font-bold uppercase text-slate-400 block tracking-wider">
                 Team Purse
               </span>
             </div>
           </div>
         </div>
 
-        {/* MAIN STAGE: 4 Surrounding Franchise Panels + Central Player Spotlight */}
-        <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 items-center">
-          <div className="lg:col-span-3 space-y-4">
+        {/* MAIN STAGE:
+            - Desktop: Left 2 Teams | Center Player Spotlight + Plinth + Controls | Right 2 Teams
+            - Mobile: Center Player Spotlight + Plinth + Controls (TOP) | 2x2 Grid of 4 Teams (BELOW)
+        */}
+        <div className="flex flex-col lg:grid lg:grid-cols-12 gap-3 sm:gap-4 items-center">
+          {/* Desktop Left Column: Teams 1 & 2 */}
+          <div className="hidden lg:block lg:col-span-3 space-y-4 w-full">
             {renderTeamCard(team1, 0, "1")}
             {renderTeamCard(team2, 1, "2")}
           </div>
 
-          <div className="lg:col-span-6 space-y-3">
+          {/* CENTER STAGE: Central Player Spotlight + 3D Plinth + Timer + Bid Buttons */}
+          <div className="w-full lg:col-span-6 space-y-2.5 sm:space-y-3">
             {/* Central Player Spotlight Card */}
-            <div className="rounded-2xl border border-slate-800/90 bg-[#090e1d]/90 p-5 shadow-2xl relative overflow-hidden court-net-pattern backdrop-blur-md">
+            <div className="rounded-2xl border border-slate-800/90 bg-[#090e1d]/90 p-3.5 sm:p-5 shadow-2xl relative overflow-hidden court-net-pattern backdrop-blur-md">
               <div className="absolute -top-10 -left-10 w-44 h-44 rounded-full bg-amber-500/10 blur-3xl pointer-events-none" />
               <div className="absolute -top-10 -right-10 w-44 h-44 rounded-full bg-cyan-500/10 blur-3xl pointer-events-none" />
 
               {activeLot ? (
-                <div className="flex flex-col sm:flex-row items-center gap-6 relative z-10">
-                  <div className="relative h-44 w-44 sm:h-48 sm:w-48 rounded-2xl overflow-hidden shrink-0 border-2 border-amber-500/60 shadow-xl shadow-amber-500/20 bg-slate-900">
+                <div className="flex flex-row items-center gap-3.5 sm:gap-6 relative z-10">
+                  {/* Player Photo */}
+                  <div className="relative h-28 w-28 sm:h-44 sm:w-44 rounded-2xl overflow-hidden shrink-0 border-2 border-amber-500/70 shadow-xl shadow-amber-500/20 bg-slate-900">
                     {activeLot.player.photoUrl ? (
                       <Image
                         src={activeLot.player.photoUrl}
@@ -954,119 +1199,119 @@ export default function LiveAuctionPage({ params }: { params: Promise<{ code: st
                       />
                     ) : (
                       <div className="h-full w-full flex items-center justify-center bg-gradient-to-tr from-slate-900 to-slate-800 text-amber-400">
-                        <User className="h-20 w-20 opacity-80" />
+                        <User className="h-12 w-12 sm:h-20 sm:w-20 opacity-80" />
                       </div>
                     )}
 
-                    <div className="absolute top-2 left-2 rounded-lg bg-slate-950/80 px-2 py-0.5 text-[10px] font-black text-amber-400 border border-amber-500/40">
+                    <div className="absolute top-1.5 left-1.5 rounded-lg bg-slate-950/85 px-1.5 py-0.5 text-[9px] font-black text-amber-400 border border-amber-500/40">
                       LOT #{activeLot.lotNumber || 1}
                     </div>
                   </div>
 
-                  <div className="flex-1 space-y-3 text-center sm:text-left min-w-0">
+                  {/* Player Metadata */}
+                  <div className="flex-1 space-y-1.5 sm:space-y-3 text-left min-w-0">
                     <div>
-                      <h2 className="text-2xl sm:text-3xl font-black text-white tracking-wide truncate">
+                      <h2 className="text-lg sm:text-2xl lg:text-3xl font-black text-white tracking-wide truncate">
                         {activeLot.player.name}
                       </h2>
 
-                      <div className="inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-bold bg-amber-500/15 text-amber-400 border border-amber-500/30 mt-1">
-                        <Gavel className="h-3.5 w-3.5 text-amber-400" />
+                      <div className="inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-[10px] sm:text-xs font-bold bg-amber-500/15 text-amber-400 border border-amber-500/30 mt-0.5">
+                        <Gavel className="h-3 w-3 text-amber-400" />
                         <span>{positionBadge.label}</span>
                       </div>
                     </div>
 
-                    <div className="grid grid-cols-2 gap-2 text-xs pt-1 max-w-sm mx-auto sm:mx-0">
-                      <div className="flex items-center gap-2 text-slate-400">
-                        <User className="h-3.5 w-3.5 text-slate-500 shrink-0" />
-                        <span>Role:</span>
-                        <strong className="text-slate-200">{positionBadge.badge}</strong>
+                    <div className="grid grid-cols-2 gap-1.5 sm:gap-2 text-[10px] sm:text-xs pt-0.5 max-w-sm">
+                      <div className="flex items-center gap-1 text-slate-400 truncate">
+                        <User className="h-3 w-3 text-slate-500 shrink-0" />
+                        <span className="hidden sm:inline">Role:</span>
+                        <strong className="text-slate-200 truncate">{positionBadge.badge}</strong>
                       </div>
 
-                      <div className="flex items-center gap-2 text-slate-400">
-                        <Trophy className="h-3.5 w-3.5 text-slate-500 shrink-0" />
-                        <span>Status:</span>
-                        <strong className="text-amber-400 uppercase font-mono text-[11px]">
+                      <div className="flex items-center gap-1 text-slate-400 truncate">
+                        <Trophy className="h-3 w-3 text-slate-500 shrink-0" />
+                        <strong className="text-amber-400 uppercase font-mono text-[10px]">
                           {activeLot.status}
                         </strong>
                       </div>
 
-                      <div className="flex items-center gap-2 text-slate-400">
-                        <Radio className="h-3.5 w-3.5 text-slate-500 shrink-0" />
-                        <span>Base Price:</span>
-                        <strong className="text-slate-200">₹{activeLot.basePrice || 50}</strong>
+                      <div className="flex items-center gap-1 text-slate-400 truncate">
+                        <Radio className="h-3 w-3 text-slate-500 shrink-0" />
+                        <span>Base:</span>
+                        <strong className="text-slate-200 font-mono">₹{activeLot.basePrice || 50}</strong>
                       </div>
 
-                      <div className="flex items-center gap-2 text-slate-400">
-                        <Sparkles className="h-3.5 w-3.5 text-slate-500 shrink-0" />
-                        <span>Increment:</span>
-                        <strong className="text-cyan-400">₹{room?.defaultBidIncrement || 50}</strong>
+                      <div className="flex items-center gap-1 text-slate-400 truncate">
+                        <Sparkles className="h-3 w-3 text-slate-500 shrink-0" />
+                        <span>Incr:</span>
+                        <strong className="text-cyan-400 font-mono">₹{room?.defaultBidIncrement || 50}</strong>
                       </div>
                     </div>
                   </div>
                 </div>
               ) : (
-                <div className="py-12 text-center space-y-3 relative z-10">
-                  <div className="h-16 w-16 mx-auto rounded-full bg-amber-500/10 border border-amber-500/20 flex items-center justify-center text-amber-400">
-                    <Gavel className="h-8 w-8" />
+                <div className="py-8 sm:py-12 text-center space-y-2 sm:space-y-3 relative z-10">
+                  <div className="h-12 w-12 sm:h-16 sm:w-16 mx-auto rounded-full bg-amber-500/10 border border-amber-500/20 flex items-center justify-center text-amber-400">
+                    <Gavel className="h-6 w-6 sm:h-8 sm:w-8" />
                   </div>
-                  <h3 className="text-lg font-black text-white">
+                  <h3 className="text-base sm:text-lg font-black text-white">
                     {isAuctioneer ? "Select Next Player for Auction" : "Waiting for Auctioneer"}
                   </h3>
                   <p className="text-xs text-slate-400 max-w-md mx-auto">
                     {isAuctioneer
                       ? `${upcomingPlayers.length} players waiting in the queue. Click "Call Next Player" below to place an athlete on the block.`
-                      : `The Auctioneer is currently selecting the next player. All ${teams.length} franchises please prepare your bids!`}
+                      : `The Auctioneer is selecting the next athlete. All ${teams.length} franchises get ready!`}
                   </p>
                 </div>
               )}
             </div>
 
-            {/* Current Bid 3D Trapezoid Plinth */}
-            <div className="flex items-center justify-center gap-3">
-              <div className="rounded-xl bg-[#0b1021] border border-slate-800 px-4 py-2 text-center shrink-0 min-w-[90px] shadow-md">
-                <span className="text-[10px] font-bold uppercase text-slate-400 block tracking-wider">
+            {/* Current Bid 3D Trapezoid Plinth (Responsive & Non-overflowing) */}
+            <div className="flex items-center justify-center gap-1.5 sm:gap-3 w-full">
+              <div className="rounded-xl bg-[#0b1021] border border-slate-800 px-2 sm:px-4 py-1.5 sm:py-2 text-center shrink-0 min-w-[70px] sm:min-w-[90px] shadow-md">
+                <span className="text-[8px] sm:text-[10px] font-bold uppercase text-slate-400 block tracking-wider">
                   Base Price
                 </span>
-                <span className="text-sm font-black font-mono text-white block mt-0.5">
+                <span className="text-xs sm:text-sm font-black font-mono text-white block mt-0.5">
                   ₹{activeLot?.basePrice || room?.minBasePrice || 50}
                 </span>
               </div>
 
-              <div className="flex-1 max-w-xs rounded-2xl bid-plinth-trapezoid py-2 px-6 text-center text-slate-950 shadow-2xl">
-                <span className="text-[10px] uppercase font-black tracking-widest text-slate-900 block">
+              <div className="flex-1 max-w-xs rounded-2xl bid-plinth-trapezoid py-1.5 sm:py-2 px-3 sm:px-6 text-center text-slate-950 shadow-2xl">
+                <span className="text-[9px] sm:text-[10px] uppercase font-black tracking-widest text-slate-900 block">
                   CURRENT BID
                 </span>
-                <div className="flex items-center justify-center gap-2 text-2xl sm:text-3xl font-black text-white drop-shadow">
-                  <Gavel className="h-6 w-6 text-amber-200" />
+                <div className="flex items-center justify-center gap-1.5 text-xl sm:text-3xl font-black text-white drop-shadow">
+                  <Gavel className="h-4 w-4 sm:h-6 sm:w-6 text-amber-200" />
                   <span>₹{currentBidAmount.toLocaleString("en-IN")}</span>
                 </div>
               </div>
 
-              <div className="rounded-xl bg-[#0b1021] border border-slate-800 px-4 py-2 text-center shrink-0 min-w-[90px] shadow-md">
-                <span className="text-[10px] font-bold uppercase text-slate-400 block tracking-wider">
-                  Bid Increment
+              <div className="rounded-xl bg-[#0b1021] border border-slate-800 px-2 sm:px-4 py-1.5 sm:py-2 text-center shrink-0 min-w-[70px] sm:min-w-[90px] shadow-md">
+                <span className="text-[8px] sm:text-[10px] font-bold uppercase text-slate-400 block tracking-wider">
+                  Increment
                 </span>
-                <span className="text-sm font-black font-mono text-cyan-400 block mt-0.5">
+                <span className="text-xs sm:text-sm font-black font-mono text-cyan-400 block mt-0.5">
                   ₹{room?.defaultBidIncrement || 50}
                 </span>
               </div>
             </div>
 
             {/* Countdown Timer Row */}
-            <div className="rounded-xl bg-[#090e1c] border border-slate-800/80 px-4 py-2 flex items-center justify-between gap-4 shadow-md">
-              <div className="flex items-center gap-2 shrink-0">
-                <div className="flex items-center gap-1.5 text-rose-500 font-mono font-black text-sm">
-                  <Clock className="h-4 w-4 text-rose-500 animate-pulse" />
+            <div className="rounded-xl bg-[#090e1c] border border-slate-800/80 px-3 sm:px-4 py-1.5 sm:py-2 flex items-center justify-between gap-3 shadow-md">
+              <div className="flex items-center gap-1.5 shrink-0">
+                <div className="flex items-center gap-1 text-rose-500 font-mono font-black text-xs sm:text-sm">
+                  <Clock className="h-3.5 w-3.5 sm:h-4 sm:w-4 text-rose-500 animate-pulse" />
                   <span>
                     00:{secondsRemaining < 10 ? `0${secondsRemaining}` : secondsRemaining}
                   </span>
                 </div>
-                <span className="text-[11px] font-bold text-slate-400">Time Left to Bid</span>
+                <span className="text-[10px] sm:text-[11px] font-bold text-slate-400">Time Left</span>
               </div>
 
               <div className="flex-1 h-2 rounded-full bg-slate-900 overflow-hidden border border-slate-800">
                 <div
-                  className="h-full bg-gradient-to-r from-orange-500 to-amber-400 transition-all duration-300"
+                  className="h-full bg-gradient-to-r from-orange-500 to-amber-400 transition-all duration-200"
                   style={{
                     width: `${Math.min(
                       100,
@@ -1081,342 +1326,452 @@ export default function LiveAuctionPage({ params }: { params: Promise<{ code: st
             </div>
 
             {/* Controls Bar: STRICT ROLE ENFORCEMENT */}
-            <div className="space-y-2 pt-1">
-              <div className="flex items-center justify-between gap-2 flex-wrap">
-                {/* 1. If Team Owner: Quick increments + Place Bid */}
-                {isTeamOwner && !isAuctioneer && (
-                  <>
-                    <div className="flex items-center gap-1.5">
-                      {[50, 100, 250, 500].map((inc) => (
-                        <button
-                          key={inc}
-                          type="button"
-                          onClick={() => setSelectedBidIncrement(inc)}
-                          className={`px-3 py-1.5 rounded-xl text-xs font-mono font-black transition-all border ${
-                            selectedBidIncrement === inc
-                              ? "bg-amber-500/20 text-amber-400 border-amber-500/50 shadow-sm"
-                              : "bg-slate-900/90 text-slate-400 border-slate-800 hover:text-white hover:bg-slate-800"
-                          }`}
-                        >
-                          + ₹{inc}
-                        </button>
-                      ))}
-                    </div>
+            <div className="space-y-2 pt-0.5">
+              {/* 1. Team Owner: Quick increments + Place Bid */}
+              {isTeamOwner && !isAuctioneer && (
+                <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-2">
+                  <div className="grid grid-cols-4 sm:flex items-center gap-1 sm:gap-1.5">
+                    {[50, 100, 250, 500].map((inc) => (
+                      <button
+                        key={inc}
+                        type="button"
+                        onClick={() => setSelectedBidIncrement(inc)}
+                        className={`px-2 sm:px-3 py-1.5 rounded-xl text-[11px] sm:text-xs font-mono font-black transition-all border text-center ${
+                          selectedBidIncrement === inc
+                            ? "bg-amber-500/20 text-amber-400 border-amber-500/60 shadow-sm"
+                            : "bg-slate-900/90 text-slate-400 border-slate-800 hover:text-white hover:bg-slate-800"
+                        }`}
+                      >
+                        +₹{inc}
+                      </button>
+                    ))}
+                  </div>
 
+                  <button
+                    type="button"
+                    onClick={() => handlePlaceBid()}
+                    disabled={
+                      biddingLoading ||
+                      !isPlayerOnBlock ||
+                      !isTimerActive ||
+                      isHighestBidder ||
+                      nextCalculatedBid > (userTeam?.remainingPurse || 0)
+                    }
+                    className="flex-1 min-h-[46px] flex items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-amber-500 via-orange-500 to-amber-500 py-2.5 sm:py-3 px-4 text-xs font-black text-slate-950 hover:brightness-110 shadow-lg shadow-amber-500/30 transition-all disabled:opacity-40 disabled:cursor-not-allowed"
+                  >
+                    {biddingLoading ? (
+                      <Loader2 className="h-4 w-4 animate-spin text-slate-950" />
+                    ) : !isPlayerOnBlock ? (
+                      <span>AWAITING NEXT LOT...</span>
+                    ) : isHighestBidder ? (
+                      <span>YOU HOLD TOP BID</span>
+                    ) : !isTimerActive ? (
+                      <span>TIMER PAUSED</span>
+                    ) : (
+                      <>
+                        <Gavel className="h-4 w-4" />
+                        <span>Place Bid (₹{nextCalculatedBid.toLocaleString("en-IN")})</span>
+                      </>
+                    )}
+                  </button>
+                </div>
+              )}
+
+              {/* 2. Auctioneer Master Controls */}
+              {isAuctioneer && (
+                <div className="w-full flex items-center justify-between gap-2 flex-wrap">
+                  {!isPlayerOnBlock ? (
                     <button
                       type="button"
-                      onClick={() => handlePlaceBid()}
-                      disabled={
-                        biddingLoading ||
-                        !isPlayerOnBlock ||
-                        !isTimerActive ||
-                        isHighestBidder ||
-                        nextCalculatedBid > (userTeam?.remainingPurse || 0)
-                      }
-                      className="flex-1 min-w-[200px] flex items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-amber-500 via-orange-500 to-amber-500 py-3 px-5 text-xs font-black text-slate-950 hover:brightness-110 shadow-lg shadow-amber-500/30 transition-all disabled:opacity-40 disabled:cursor-not-allowed"
+                      onClick={handleSelectRandomPlayer}
+                      disabled={actionLoading || upcomingPlayers.length === 0}
+                      className="flex-1 min-h-[46px] flex items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-amber-500 via-orange-500 to-amber-500 py-3 px-4 text-xs font-black text-slate-950 hover:brightness-110 disabled:opacity-40 shadow-xl shadow-amber-500/25 transition-all"
                     >
-                      {biddingLoading ? (
-                        <Loader2 className="h-4 w-4 animate-spin text-slate-950" />
-                      ) : !isPlayerOnBlock ? (
-                        <span>AWAITING NEXT PLAYER...</span>
-                      ) : isHighestBidder ? (
-                        <span>YOU ARE CURRENT HIGHEST BIDDER</span>
-                      ) : !isTimerActive ? (
-                        <span>BIDDING TIMER PAUSED</span>
-                      ) : (
-                        <>
-                          <Gavel className="h-4 w-4" />
-                          <span>Place Bid (₹{nextCalculatedBid.toLocaleString("en-IN")})</span>
-                        </>
-                      )}
+                      <Shuffle className="h-4 w-4 text-slate-950" />
+                      <span>Call Next Player ({upcomingPlayers.length} in queue)</span>
                     </button>
-                  </>
-                )}
+                  ) : (
+                    <div className="w-full flex items-center justify-between gap-2 flex-wrap">
+                      {!isTimerActive && (
+                        <button
+                          type="button"
+                          onClick={handleStartBidding}
+                          disabled={actionLoading}
+                          className="flex-1 min-h-[42px] flex items-center justify-center gap-1.5 rounded-xl bg-cyan-500 hover:bg-cyan-400 py-2.5 px-3 text-xs font-black text-slate-950 shadow-md transition-colors"
+                        >
+                          <Play className="h-3.5 w-3.5 fill-slate-950" />
+                          <span>Start Timer</span>
+                        </button>
+                      )}
 
-                {/* 2. If Auctioneer: Only Auctioneer Can Select Player, Start Timer, Sold, Unsold */}
-                {isAuctioneer && (
-                  <div className="w-full flex items-center justify-between gap-2 flex-wrap">
-                    {!isPlayerOnBlock ? (
                       <button
                         type="button"
-                        onClick={handleSelectRandomPlayer}
-                        disabled={actionLoading || upcomingPlayers.length === 0}
-                        className="flex-1 flex items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-amber-500 via-orange-500 to-amber-500 py-3 px-6 text-xs font-black text-slate-950 hover:brightness-110 disabled:opacity-40 shadow-xl shadow-amber-500/25 transition-all"
+                        onClick={handleSold}
+                        disabled={actionLoading || !auction?.currentHighestBidderId}
+                        className="flex-1 min-h-[42px] flex items-center justify-center gap-1.5 rounded-xl bg-emerald-500 hover:bg-emerald-400 py-2.5 px-3 text-xs font-black text-slate-950 disabled:opacity-40 shadow-md shadow-emerald-500/20 transition-colors"
                       >
-                        <Shuffle className="h-4 w-4 text-slate-950" />
-                        <span>Call Next Player to Block ({upcomingPlayers.length} in queue)</span>
+                        <CheckCircle className="h-4 w-4" />
+                        <span>CONFIRM SOLD</span>
                       </button>
-                    ) : (
-                      <div className="w-full flex items-center justify-between gap-2 flex-wrap">
-                        {!isTimerActive && (
-                          <button
-                            type="button"
-                            onClick={handleStartBidding}
-                            disabled={actionLoading}
-                            className="flex-1 flex items-center justify-center gap-1.5 rounded-xl bg-cyan-500 hover:bg-cyan-400 py-2.5 px-4 text-xs font-black text-slate-950 shadow-md transition-colors"
-                          >
-                            <Play className="h-3.5 w-3.5 fill-slate-950" />
-                            <span>Start Countdown Timer</span>
-                          </button>
-                        )}
 
-                        <button
-                          type="button"
-                          onClick={handleSold}
-                          disabled={actionLoading || !auction?.currentHighestBidderId}
-                          className="flex-1 flex items-center justify-center gap-1.5 rounded-xl bg-emerald-500 hover:bg-emerald-400 py-2.5 px-4 text-xs font-black text-slate-950 disabled:opacity-40 shadow-md shadow-emerald-500/20 transition-colors"
-                        >
-                          <CheckCircle className="h-4 w-4" />
-                          <span>CONFIRM SOLD</span>
-                        </button>
+                      <button
+                        type="button"
+                        onClick={handleUnsold}
+                        disabled={actionLoading}
+                        className="flex items-center gap-1.5 min-h-[42px] rounded-xl bg-rose-600 hover:bg-rose-500 py-2.5 px-3 text-xs font-black text-white disabled:opacity-40 shadow-md transition-colors"
+                      >
+                        <FastForward className="h-3.5 w-3.5" />
+                        <span>Unsold</span>
+                      </button>
 
-                        <button
-                          type="button"
-                          onClick={handleUnsold}
-                          disabled={actionLoading}
-                          className="flex items-center gap-1.5 rounded-xl bg-rose-600 hover:bg-rose-500 py-2.5 px-4 text-xs font-black text-white disabled:opacity-40 shadow-md transition-colors"
-                        >
-                          <FastForward className="h-3.5 w-3.5" />
-                          <span>Mark Unsold</span>
-                        </button>
-
-                        <button
-                          type="button"
-                          onClick={handleResetTimer}
-                          title="Reset Timer (+30s)"
-                          className="rounded-xl bg-slate-900 border border-slate-800 p-2 text-slate-400 hover:text-white transition-colors"
-                        >
-                          <RotateCcw className="h-4 w-4" />
-                        </button>
-                      </div>
-                    )}
-                  </div>
-                )}
-              </div>
+                      <button
+                        type="button"
+                        onClick={handleResetTimer}
+                        title="Reset Timer (+30s)"
+                        className="rounded-xl bg-slate-900 border border-slate-800 p-2 text-slate-400 hover:text-white transition-colors"
+                      >
+                        <RotateCcw className="h-4 w-4" />
+                      </button>
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
           </div>
 
-          <div className="lg:col-span-3 space-y-4">
+          {/* Desktop Right Column: Teams 3 & 4 */}
+          <div className="hidden lg:block lg:col-span-3 space-y-4 w-full">
             {renderTeamCard(team3, 2, "3")}
             {renderTeamCard(team4, 3, "4")}
           </div>
+
+          {/* MOBILE ONLY: 2x2 Grid of the 4 Franchise Panels beneath the stage */}
+          <div className="lg:hidden w-full pt-1">
+            <div className="flex items-center justify-between mb-1.5 px-1">
+              <span className="text-[10px] font-black uppercase tracking-wider text-slate-400">
+                Franchises in Arena
+              </span>
+              <span className="text-[10px] font-bold text-amber-400">
+                Tap card to view won squad
+              </span>
+            </div>
+            <div className="grid grid-cols-2 gap-2">
+              {renderTeamCard(team1, 0, "1", true)}
+              {renderTeamCard(team2, 1, "2", true)}
+              {renderTeamCard(team3, 2, "3", true)}
+              {renderTeamCard(team4, 3, "4", true)}
+            </div>
+          </div>
         </div>
 
-        {/* BOTTOM 3 PANELS */}
-        <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 items-stretch pt-2">
-          {/* Left: Auction Status */}
-          <div className="lg:col-span-3 rounded-2xl bg-[#090e1d]/90 border border-slate-800/90 p-4 shadow-xl flex flex-col justify-between">
-            <div>
-              <div className="flex items-center gap-2 border-b border-slate-800/80 pb-2.5 mb-3">
-                <TrendingUp className="h-4 w-4 text-amber-400" />
-                <h3 className="text-xs font-black uppercase tracking-wider text-white">
-                  Auction Status
-                </h3>
-              </div>
-
-              <div className="space-y-2.5 text-xs">
-                <div className="flex items-center justify-between">
-                  <span className="text-slate-400">Players Sold</span>
-                  <span className="font-mono font-black text-white">{soldPlayers.length}</span>
-                </div>
-
-                <div className="flex items-center justify-between">
-                  <span className="text-slate-400">Total Spent</span>
-                  <span className="font-mono font-black text-emerald-400">
-                    ₹{totalAmountSpent.toLocaleString("en-IN")}
-                  </span>
-                </div>
-
-                <div className="flex items-center justify-between">
-                  <span className="text-slate-400">Unsold Players</span>
-                  <span className="font-mono font-black text-rose-400">{unsoldPlayers.length}</span>
-                </div>
-
-                <div className="flex items-center justify-between">
-                  <span className="text-slate-400">Players Remaining</span>
-                  <span className="font-mono font-black text-amber-400">{upcomingPlayers.length}</span>
-                </div>
-              </div>
-            </div>
-
-            <div className="mt-3 pt-2.5 border-t border-slate-900 text-[10px] text-slate-500 text-center font-bold">
-              Total Pool: {totalPoolPlayers} Athletes
-            </div>
-          </div>
-
-          {/* Center: Player Queue Carousel */}
-          <div className="lg:col-span-6 rounded-2xl bg-[#090e1d]/90 border border-slate-800/90 p-4 shadow-xl relative">
-            <div className="flex items-center justify-between border-b border-slate-800/80 pb-2.5 mb-3">
-              <div className="flex items-center gap-2">
-                <User className="h-4 w-4 text-amber-400" />
-                <h3 className="text-xs font-black uppercase tracking-wider text-white">
-                  Player Queue ({upcomingPlayers.length + (activeLot ? 1 : 0)})
-                </h3>
-              </div>
-
-              <div className="flex items-center gap-1">
-                <button
-                  type="button"
-                  onClick={() => scrollQueue("left")}
-                  className="rounded-lg bg-slate-900 hover:bg-slate-800 p-1 text-slate-400 hover:text-white border border-slate-800"
-                >
-                  <ChevronLeft className="h-3.5 w-3.5" />
-                </button>
-                <button
-                  type="button"
-                  onClick={() => scrollQueue("right")}
-                  className="rounded-lg bg-slate-900 hover:bg-slate-800 p-1 text-slate-400 hover:text-white border border-slate-800"
-                >
-                  <ChevronRight className="h-3.5 w-3.5" />
-                </button>
-              </div>
-            </div>
-
-            <div
-              ref={queueScrollRef}
-              className="flex items-center gap-3 overflow-x-auto pb-2 scroll-smooth no-scrollbar"
+        {/* BOTTOM PANELS:
+            - Desktop: 3 side-by-side columns (Status, Queue Carousel, Live Activity)
+            - Mobile: Sleek 3-button tab bar switching between the 3 views
+        */}
+        <div className="pt-2">
+          {/* Mobile Bottom Tab Selector (< lg) */}
+          <div className="lg:hidden flex items-center gap-1.5 p-1 rounded-2xl bg-[#090e1d] border border-slate-800 mb-2">
+            <button
+              type="button"
+              onClick={() => setMobileBottomTab("queue")}
+              className={`flex-1 py-2 rounded-xl text-[11px] font-black flex items-center justify-center gap-1.5 transition-all ${
+                mobileBottomTab === "queue"
+                  ? "bg-amber-500/20 text-amber-400 border border-amber-500/40 shadow-sm"
+                  : "text-slate-400 hover:text-white"
+              }`}
             >
-              {activeLot && (
-                <div className="rounded-xl border-2 border-amber-400 bg-amber-500/10 p-2 min-w-[95px] max-w-[95px] text-center shadow-lg shrink-0 relative">
-                  <div className="relative h-14 w-14 rounded-full overflow-hidden mx-auto bg-slate-900 border border-amber-400/80 shadow">
-                    {activeLot.player.photoUrl ? (
-                      <Image
-                        src={activeLot.player.photoUrl}
-                        alt={activeLot.player.name}
-                        fill
-                        className="object-cover"
-                        unoptimized
-                      />
-                    ) : (
-                      <div className="h-full w-full flex items-center justify-center text-xs font-bold text-amber-400">
-                        {activeLot.player.name.charAt(0)}
-                      </div>
-                    )}
-                  </div>
+              <User className="h-3.5 w-3.5 text-amber-400" />
+              <span>Queue ({upcomingPlayers.length + (activeLot ? 1 : 0)})</span>
+            </button>
 
-                  <p className="mt-1.5 text-[11px] font-black text-white truncate">
-                    {activeLot.player.name}
-                  </p>
-                  <p className="text-[9px] text-amber-400 font-bold truncate">
-                    {activeLot.player.position}
-                  </p>
+            <button
+              type="button"
+              onClick={() => setMobileBottomTab("activity")}
+              className={`flex-1 py-2 rounded-xl text-[11px] font-black flex items-center justify-center gap-1.5 transition-all ${
+                mobileBottomTab === "activity"
+                  ? "bg-amber-500/20 text-amber-400 border border-amber-500/40 shadow-sm"
+                  : "text-slate-400 hover:text-white"
+              }`}
+            >
+              <Radio className="h-3.5 w-3.5 text-rose-400" />
+              <span>Live Feed</span>
+            </button>
 
-                  <span className="mt-1 inline-block rounded bg-amber-500 px-1.5 py-0.2 text-[8px] font-black text-slate-950 uppercase">
-                    LIVE
-                  </span>
-                </div>
-              )}
-
-              {upcomingPlayers.map((ap) => (
-                <div
-                  key={ap.id}
-                  className="rounded-xl border border-slate-800 bg-slate-900/80 p-2 min-w-[95px] max-w-[95px] text-center shrink-0 hover:border-slate-700 transition-colors"
-                >
-                  <div className="relative h-14 w-14 rounded-full overflow-hidden mx-auto bg-slate-950 border border-slate-800">
-                    {ap.player.photoUrl ? (
-                      <Image
-                        src={ap.player.photoUrl}
-                        alt={ap.player.name}
-                        fill
-                        className="object-cover"
-                        unoptimized
-                      />
-                    ) : (
-                      <div className="h-full w-full flex items-center justify-center text-xs font-bold text-slate-400">
-                        {ap.player.name.charAt(0)}
-                      </div>
-                    )}
-                  </div>
-
-                  <p className="mt-1.5 text-[11px] font-bold text-slate-200 truncate">
-                    {ap.player.name}
-                  </p>
-                  <p className="text-[9px] text-slate-400 truncate">{ap.player.position}</p>
-                  <span className="mt-1 inline-block text-[9px] font-mono text-cyan-400 font-bold">
-                    ₹{ap.basePrice || 50}
-                  </span>
-                </div>
-              ))}
-
-              {upcomingPlayers.length === 0 && !activeLot && (
-                <div className="py-6 text-center text-xs text-slate-500 w-full">
-                  No upcoming players remaining in the queue.
-                </div>
-              )}
-            </div>
+            <button
+              type="button"
+              onClick={() => setMobileBottomTab("status")}
+              className={`flex-1 py-2 rounded-xl text-[11px] font-black flex items-center justify-center gap-1.5 transition-all ${
+                mobileBottomTab === "status"
+                  ? "bg-amber-500/20 text-amber-400 border border-amber-500/40 shadow-sm"
+                  : "text-slate-400 hover:text-white"
+              }`}
+            >
+              <TrendingUp className="h-3.5 w-3.5 text-emerald-400" />
+              <span>Stats</span>
+            </button>
           </div>
 
-          {/* Right: Live Activity */}
-          <div className="lg:col-span-3 rounded-2xl bg-[#090e1d]/90 border border-slate-800/90 p-4 shadow-xl flex flex-col justify-between">
-            <div>
-              <div className="flex items-center justify-between border-b border-slate-800/80 pb-2.5 mb-3">
-                <div className="flex items-center gap-2">
-                  <Radio className="h-4 w-4 text-amber-400 animate-pulse" />
+          {/* Panels Grid */}
+          <div className="grid grid-cols-1 lg:grid-cols-12 gap-3 sm:gap-4 items-stretch">
+            {/* 1. Auction Status (Left on desktop, Tab on mobile) */}
+            <div
+              className={`lg:col-span-3 rounded-2xl bg-[#090e1d]/90 border border-slate-800/90 p-4 shadow-xl flex flex-col justify-between ${
+                mobileBottomTab !== "status" ? "hidden lg:flex" : "flex"
+              }`}
+            >
+              <div>
+                <div className="flex items-center gap-2 border-b border-slate-800/80 pb-2 mb-2.5">
+                  <TrendingUp className="h-4 w-4 text-amber-400" />
                   <h3 className="text-xs font-black uppercase tracking-wider text-white">
-                    Live Activity
+                    Auction Status
                   </h3>
                 </div>
-                <span className="inline-flex items-center gap-1 rounded-full bg-rose-500/20 px-2 py-0.5 text-[9px] font-black text-rose-400 border border-rose-500/30">
-                  <span className="h-1 w-1 rounded-full bg-rose-400 animate-ping" />
-                  LIVE
-                </span>
+
+                <div className="space-y-2 text-xs">
+                  <div className="flex items-center justify-between">
+                    <span className="text-slate-400">Players Sold</span>
+                    <span className="font-mono font-black text-white">{soldPlayers.length}</span>
+                  </div>
+
+                  <div className="flex items-center justify-between">
+                    <span className="text-slate-400">Total Spent</span>
+                    <span className="font-mono font-black text-emerald-400">
+                      ₹{totalAmountSpent.toLocaleString("en-IN")}
+                    </span>
+                  </div>
+
+                  <div className="flex items-center justify-between">
+                    <span className="text-slate-400">Unsold Players</span>
+                    <span className="font-mono font-black text-rose-400">{unsoldPlayers.length}</span>
+                  </div>
+
+                  <div className="flex items-center justify-between">
+                    <span className="text-slate-400">Players Remaining</span>
+                    <span className="font-mono font-black text-amber-400">{upcomingPlayers.length}</span>
+                  </div>
+                </div>
               </div>
 
-              <div className="space-y-2 max-h-[140px] overflow-y-auto pr-1">
-                {currentLotBids.slice(0, 3).map((b) => (
-                  <div
-                    key={b.id}
-                    className="flex items-center justify-between text-[11px] rounded-lg bg-slate-950/60 p-2 border border-slate-900"
+              <div className="mt-3 pt-2 border-t border-slate-900 text-[10px] text-slate-500 text-center font-bold">
+                Total Pool: {totalPoolPlayers} Athletes
+              </div>
+            </div>
+
+            {/* 2. Player Queue Carousel (Center on desktop, Tab on mobile) */}
+            <div
+              className={`lg:col-span-6 rounded-2xl bg-[#090e1d]/90 border border-slate-800/90 p-4 shadow-xl relative ${
+                mobileBottomTab !== "queue" ? "hidden lg:block" : "block"
+              }`}
+            >
+              <div className="flex items-center justify-between border-b border-slate-800/80 pb-2 mb-2.5">
+                <div className="flex items-center gap-2">
+                  <User className="h-4 w-4 text-amber-400" />
+                  <h3 className="text-xs font-black uppercase tracking-wider text-white">
+                    Player Queue ({upcomingPlayers.length + (activeLot ? 1 : 0)})
+                  </h3>
+                </div>
+
+                <div className="flex items-center gap-1">
+                  <button
+                    type="button"
+                    onClick={() => scrollQueue("left")}
+                    className="rounded-lg bg-slate-900 hover:bg-slate-800 p-1 text-slate-400 hover:text-white border border-slate-800"
                   >
-                    <div className="flex items-center gap-2 truncate pr-2">
-                      <Gavel className="h-3 w-3 text-amber-400 shrink-0" />
-                      <span className="text-slate-300 truncate">
-                        <strong className="text-white">{b.team.name}</strong> placed bid
-                      </span>
+                    <ChevronLeft className="h-3.5 w-3.5" />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => scrollQueue("right")}
+                    className="rounded-lg bg-slate-900 hover:bg-slate-800 p-1 text-slate-400 hover:text-white border border-slate-800"
+                  >
+                    <ChevronRight className="h-3.5 w-3.5" />
+                  </button>
+                </div>
+              </div>
+
+              <div
+                ref={queueScrollRef}
+                className="flex items-center gap-2.5 sm:gap-3 overflow-x-auto pb-2 scroll-smooth no-scrollbar"
+              >
+                {activeLot && (
+                  <div className="rounded-xl border-2 border-amber-400 bg-amber-500/10 p-2 min-w-[90px] sm:min-w-[95px] max-w-[95px] text-center shadow-lg shrink-0 relative">
+                    <div className="relative h-12 w-12 sm:h-14 sm:w-14 rounded-full overflow-hidden mx-auto bg-slate-900 border border-amber-400/80 shadow">
+                      {activeLot.player.photoUrl ? (
+                        <Image
+                          src={activeLot.player.photoUrl}
+                          alt={activeLot.player.name}
+                          fill
+                          className="object-cover"
+                          unoptimized
+                        />
+                      ) : (
+                        <div className="h-full w-full flex items-center justify-center text-xs font-bold text-amber-400">
+                          {activeLot.player.name.charAt(0)}
+                        </div>
+                      )}
                     </div>
-                    <span className="font-mono font-black text-emerald-400 shrink-0">
-                      ₹{b.amount.toLocaleString("en-IN")}
+
+                    <p className="mt-1 text-[10px] sm:text-[11px] font-black text-white truncate">
+                      {activeLot.player.name}
+                    </p>
+                    <p className="text-[8px] sm:text-[9px] text-amber-400 font-bold truncate">
+                      {activeLot.player.position}
+                    </p>
+
+                    <span className="mt-0.5 inline-block rounded bg-amber-500 px-1 py-0.2 text-[7px] sm:text-[8px] font-black text-slate-950 uppercase">
+                      LIVE
+                    </span>
+                  </div>
+                )}
+
+                {upcomingPlayers.map((ap) => (
+                  <div
+                    key={ap.id}
+                    className="rounded-xl border border-slate-800 bg-slate-900/80 p-2 min-w-[90px] sm:min-w-[95px] max-w-[95px] text-center shrink-0 hover:border-slate-700 transition-colors"
+                  >
+                    <div className="relative h-12 w-12 sm:h-14 sm:w-14 rounded-full overflow-hidden mx-auto bg-slate-950 border border-slate-800">
+                      {ap.player.photoUrl ? (
+                        <Image
+                          src={ap.player.photoUrl}
+                          alt={ap.player.name}
+                          fill
+                          className="object-cover"
+                          unoptimized
+                        />
+                      ) : (
+                        <div className="h-full w-full flex items-center justify-center text-xs font-bold text-slate-400">
+                          {ap.player.name.charAt(0)}
+                        </div>
+                      )}
+                    </div>
+
+                    <p className="mt-1 text-[10px] sm:text-[11px] font-bold text-slate-200 truncate">
+                      {ap.player.name}
+                    </p>
+                    <p className="text-[8px] sm:text-[9px] text-slate-400 truncate">{ap.player.position}</p>
+                    <span className="mt-0.5 inline-block text-[8px] sm:text-[9px] font-mono text-cyan-400 font-bold">
+                      ₹{ap.basePrice || 50}
                     </span>
                   </div>
                 ))}
 
-                {recentEvents.slice(0, 4).map((evt) => (
-                  <div
-                    key={evt.id}
-                    className="flex items-center justify-between text-[11px] rounded-lg bg-slate-950/40 p-2 border border-slate-900/60"
-                  >
-                    <div className="flex items-center gap-2 truncate pr-2">
-                      <Activity className="h-3 w-3 text-cyan-400 shrink-0" />
-                      <span className="text-slate-400 truncate">{evt.message}</span>
-                    </div>
-                    <span className="text-[10px] text-slate-500 shrink-0 font-mono">
-                      {new Date(evt.createdAt).toLocaleTimeString([], {
-                        hour: "2-digit",
-                        minute: "2-digit",
-                      })}
-                    </span>
-                  </div>
-                ))}
-
-                {currentLotBids.length === 0 && recentEvents.length === 0 && (
-                  <div className="py-6 text-center text-xs text-slate-500">
-                    Awaiting live bids and room events...
+                {upcomingPlayers.length === 0 && !activeLot && (
+                  <div className="py-6 text-center text-xs text-slate-500 w-full">
+                    No upcoming players remaining in the queue.
                   </div>
                 )}
               </div>
             </div>
 
-            <div className="mt-2 text-right">
-              <Link
-                href={`/room/${code}/results`}
-                className="text-[10px] font-bold text-amber-400 hover:text-amber-300 underline"
-              >
-                View Full Results →
-              </Link>
+            {/* 3. Live Activity (Right on desktop, Tab on mobile) */}
+            <div
+              className={`lg:col-span-3 rounded-2xl bg-[#090e1d]/90 border border-slate-800/90 p-4 shadow-xl flex flex-col justify-between ${
+                mobileBottomTab !== "activity" ? "hidden lg:flex" : "flex"
+              }`}
+            >
+              <div>
+                <div className="flex items-center justify-between border-b border-slate-800/80 pb-2 mb-2.5">
+                  <div className="flex items-center gap-2">
+                    <Radio className="h-4 w-4 text-amber-400 animate-pulse" />
+                    <h3 className="text-xs font-black uppercase tracking-wider text-white">
+                      Live Activity
+                    </h3>
+                  </div>
+                  <span className="inline-flex items-center gap-1 rounded-full bg-rose-500/20 px-2 py-0.5 text-[8px] sm:text-[9px] font-black text-rose-400 border border-rose-500/30">
+                    <span className="h-1 w-1 rounded-full bg-rose-400 animate-ping" />
+                    LIVE
+                  </span>
+                </div>
+
+                <div className="space-y-1.5 max-h-[140px] overflow-y-auto pr-1">
+                  {currentLotBids.slice(0, 4).map((b) => (
+                    <div
+                      key={b.id}
+                      className="flex items-center justify-between text-[10px] sm:text-[11px] rounded-lg bg-slate-950/60 p-2 border border-slate-900"
+                    >
+                      <div className="flex items-center gap-1.5 truncate pr-2">
+                        <Gavel className="h-3 w-3 text-amber-400 shrink-0" />
+                        <span className="text-slate-300 truncate">
+                          <strong className="text-white">{b.team.name}</strong> bid
+                        </span>
+                      </div>
+                      <span className="font-mono font-black text-emerald-400 shrink-0">
+                        ₹{b.amount.toLocaleString("en-IN")}
+                      </span>
+                    </div>
+                  ))}
+
+                  {recentEvents.slice(0, 3).map((evt) => (
+                    <div
+                      key={evt.id}
+                      className="flex items-center justify-between text-[10px] sm:text-[11px] rounded-lg bg-slate-950/40 p-1.5 border border-slate-900/60"
+                    >
+                      <div className="flex items-center gap-1.5 truncate pr-2">
+                        <Activity className="h-3 w-3 text-cyan-400 shrink-0" />
+                        <span className="text-slate-400 truncate">{evt.message}</span>
+                      </div>
+                      <span className="text-[9px] text-slate-500 shrink-0 font-mono">
+                        {new Date(evt.createdAt).toLocaleTimeString([], {
+                          hour: "2-digit",
+                          minute: "2-digit",
+                        })}
+                      </span>
+                    </div>
+                  ))}
+
+                  {currentLotBids.length === 0 && recentEvents.length === 0 && (
+                    <div className="py-4 text-center text-xs text-slate-500">
+                      Awaiting live bids and events...
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              <div className="mt-2 text-right">
+                <Link
+                  href={`/room/${code}/results`}
+                  className="text-[10px] font-bold text-amber-400 hover:text-amber-300 underline"
+                >
+                  View Full Results →
+                </Link>
+              </div>
             </div>
           </div>
         </div>
+
+        {/* STICKY MOBILE BID BAR FOR TEAM OWNERS */}
+        {isTeamOwner && !isAuctioneer && isPlayerOnBlock && isTimerActive && !isHighestBidder && (
+          <div className="lg:hidden fixed bottom-0 left-0 right-0 z-40 bg-[#070b16]/95 border-t border-slate-800 p-2.5 backdrop-blur-md flex items-center gap-2">
+            <div className="flex items-center gap-1">
+              {[50, 100].map((inc) => (
+                <button
+                  key={inc}
+                  type="button"
+                  onClick={() => setSelectedBidIncrement(inc)}
+                  className={`px-2 py-1.5 rounded-lg text-[10px] font-mono font-bold border ${
+                    selectedBidIncrement === inc
+                      ? "bg-amber-500/20 text-amber-400 border-amber-500"
+                      : "bg-slate-900 text-slate-400 border-slate-800"
+                  }`}
+                >
+                  +₹{inc}
+                </button>
+              ))}
+            </div>
+
+            <button
+              type="button"
+              onClick={() => handlePlaceBid()}
+              disabled={biddingLoading || nextCalculatedBid > (userTeam?.remainingPurse || 0)}
+              className="flex-1 min-h-[42px] flex items-center justify-center gap-1.5 rounded-xl bg-gradient-to-r from-amber-500 to-orange-500 py-2 px-3 text-xs font-black text-slate-950 shadow-lg shadow-amber-500/30"
+            >
+              <Gavel className="h-3.5 w-3.5" />
+              <span>BID ₹{nextCalculatedBid.toLocaleString("en-IN")}</span>
+            </button>
+          </div>
+        )}
       </main>
+      </div>
     </div>
   );
 }

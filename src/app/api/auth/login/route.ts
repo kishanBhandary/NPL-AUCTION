@@ -6,20 +6,25 @@ import { verifyPassword } from "@/lib/password";
 export async function POST(req: Request) {
   try {
     const body = await req.json();
-    const { email, password } = body;
+    const identifier = (body.username || body.email || "").trim();
+    const { password } = body;
 
-    if (!email) {
-      return NextResponse.json({ error: "Email is required" }, { status: 400 });
+    if (!identifier) {
+      return NextResponse.json({ error: "Username or Email is required" }, { status: 400 });
     }
 
     if (!password) {
       return NextResponse.json({ error: "Password is mandatory" }, { status: 400 });
     }
 
-    const trimmedEmail = email.toLowerCase().trim();
-
-    const user = await prisma.user.findUnique({
-      where: { email: trimmedEmail },
+    // Support login via either name/username OR email (case-insensitive)
+    const user = await prisma.user.findFirst({
+      where: {
+        OR: [
+          { email: { equals: identifier.toLowerCase(), mode: "insensitive" } },
+          { name: { equals: identifier, mode: "insensitive" } },
+        ],
+      },
       include: {
         teams: {
           select: { id: true, roomId: true, name: true },
@@ -28,7 +33,7 @@ export async function POST(req: Request) {
     });
 
     if (!user) {
-      return NextResponse.json({ error: "No account found with this email" }, { status: 404 });
+      return NextResponse.json({ error: "No account found with this username or email" }, { status: 404 });
     }
 
     // If user has a password stored, verify it

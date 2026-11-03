@@ -5,50 +5,7 @@ import Image from "next/image";
 import Navbar from "@/components/Navbar";
 import { formatCurrency, getPositionBadge } from "@/lib/utils";
 import { PlayerPosition } from "@/types";
-import { UserPlus, Upload, Zap, Plus, Check, Loader2, Sparkles, User } from "lucide-react";
-
-const NPL_SAMPLE_PLAYERS = [
-  {
-    name: "Sanju Varma",
-    position: "ATTACKER" as PlayerPosition,
-    photoUrl: "https://images.unsplash.com/photo-1546519638-68e109498ffc?w=500&auto=format&fit=crop&q=80",
-  },
-  {
-    name: "Arjun Nair",
-    position: "SETTER" as PlayerPosition,
-    photoUrl: "https://images.unsplash.com/photo-1519766304817-4f37bda74a29?w=500&auto=format&fit=crop&q=80",
-  },
-  {
-    name: "Pranav Kumar",
-    position: "LIBERO" as PlayerPosition,
-    photoUrl: "https://images.unsplash.com/photo-1534438327276-14e5300c3a48?w=500&auto=format&fit=crop&q=80",
-  },
-  {
-    name: "Gokul Das",
-    position: "DEFENDER" as PlayerPosition,
-    photoUrl: "https://images.unsplash.com/photo-1574629810360-7efbbe195018?w=500&auto=format&fit=crop&q=80",
-  },
-  {
-    name: "Vivek Menon",
-    position: "ALL_ROUNDER" as PlayerPosition,
-    photoUrl: "https://images.unsplash.com/photo-1517649763962-0c623266ddc0?w=500&auto=format&fit=crop&q=80",
-  },
-  {
-    name: "Rahul Chandran",
-    position: "ATTACKER" as PlayerPosition,
-    photoUrl: "https://images.unsplash.com/photo-1526676037777-05a232554f77?w=500&auto=format&fit=crop&q=80",
-  },
-  {
-    name: "Kiran Prasad",
-    position: "DEFENDER" as PlayerPosition,
-    photoUrl: "https://images.unsplash.com/photo-1568602471122-7832951cc4c5?w=500&auto=format&fit=crop&q=80",
-  },
-  {
-    name: "Anoop Raj",
-    position: "SETTER" as PlayerPosition,
-    photoUrl: "https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=500&auto=format&fit=crop&q=80",
-  },
-];
+import { UserPlus, Upload, Zap, Plus, Check, Loader2, User } from "lucide-react";
 
 export default function PlayersPage({ params }: { params: Promise<{ code: string }> }) {
   const { code } = use(params);
@@ -65,7 +22,6 @@ export default function PlayersPage({ params }: { params: Promise<{ code: string
 
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
-  const [seeding, setSeeding] = useState(false);
   const [uploadingPhoto, setUploadingPhoto] = useState(false);
   const [error, setError] = useState("");
   const [successMsg, setSuccessMsg] = useState("");
@@ -166,34 +122,6 @@ export default function PlayersPage({ params }: { params: Promise<{ code: string
     }
   };
 
-  const handleSeedSamples = async () => {
-    if (!roomId) return;
-    setSeeding(true);
-    setError("");
-
-    try {
-      for (const p of NPL_SAMPLE_PLAYERS) {
-        await fetch("/api/players", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            roomId,
-            name: p.name,
-            position: p.position,
-            photoUrl: p.photoUrl,
-          }),
-        });
-      }
-      setSuccessMsg("Added Narayana Guru Premiere League players to the roster!");
-      setTimeout(() => setSuccessMsg(""), 3000);
-      fetchRoomAndPlayers();
-    } catch {
-      setError("Failed to auto-seed players");
-    } finally {
-      setSeeding(false);
-    }
-  };
-
   if (loading) {
     return (
       <div className="min-h-screen bg-slate-950 flex flex-col items-center justify-center text-slate-400">
@@ -211,25 +139,10 @@ export default function PlayersPage({ params }: { params: Promise<{ code: string
         {/* Top Header */}
         <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 border-b border-slate-800 pb-6">
           <div>
-            <div className="inline-flex items-center gap-1.5 rounded-full bg-cyan-500/10 px-3 py-1 text-xs font-bold text-cyan-400 mb-2 border border-cyan-500/20">
-              <Zap className="h-3.5 w-3.5" />
-              NARAYANA GURU PREMIERE LEAGUE • PLAYER ROSTER
-            </div>
             <h1 className="text-3xl font-black text-white">NPL Player Pool</h1>
             <p className="text-xs text-slate-400 mt-1">
               {players.length} players registered • Base price: ₹{minBasePrice} for all players
             </p>
-          </div>
-
-          <div className="flex items-center gap-3">
-            <button
-              onClick={handleSeedSamples}
-              disabled={seeding}
-              className="flex items-center gap-2 rounded-xl bg-slate-800 px-4 py-2.5 text-xs font-bold text-amber-400 hover:bg-slate-700 border border-slate-700 transition-colors shadow-sm disabled:opacity-50"
-            >
-              <Sparkles className="h-4 w-4" />
-              <span>{seeding ? "Adding Players..." : "Auto-Seed NPL Players"}</span>
-            </button>
           </div>
         </div>
 
@@ -317,10 +230,6 @@ export default function PlayersPage({ params }: { params: Promise<{ code: string
                   </div>
                 </div>
 
-                <div className="rounded-xl bg-slate-950/60 p-3 border border-slate-800 text-xs text-slate-400">
-                  <span className="font-semibold text-amber-400">Fixed Base Price:</span> ₹{minBasePrice} •{" "}
-                  <span className="font-semibold text-emerald-400">Bid Increment:</span> ₹50
-                </div>
 
                 <button
                   type="submit"

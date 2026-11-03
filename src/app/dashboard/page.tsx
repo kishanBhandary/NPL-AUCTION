@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
+import Image from "next/image";
 import { useRouter } from "next/navigation";
 import Navbar from "@/components/Navbar";
 import {
@@ -149,34 +150,65 @@ export default function DashboardPage() {
   const totalPlayers = rooms.reduce((acc, r) => acc + (r._count?.players || 0), 0);
 
   return (
-    <div className="min-h-screen bg-[#070b16] text-slate-100 flex flex-col arena-court-bg">
-      <Navbar activeTab="dashboard" />
+    <div className="min-h-screen bg-[#060913] text-slate-100 flex flex-col relative overflow-x-hidden">
+      {/* 1. CINEMATIC DARK VOLLEYBALL ARENA BACKGROUND */}
+      <div className="fixed inset-0 z-0 pointer-events-none">
+        <Image
+          src="/images/npl-dashboard-bg.jpg"
+          alt="Volleyball Arena Background"
+          fill
+          priority
+          className="object-cover object-center opacity-20 brightness-75 contrast-125 scale-105 transition-transform duration-1000"
+        />
+        {/* Dark Vignette and Gradient Overlays for Maximum Contrast & Deep Dark Theme */}
+        <div className="absolute inset-0 bg-gradient-to-b from-[#060913]/95 via-[#060913]/85 to-[#060913]/98" />
+        <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_center,_transparent_20%,_rgba(4,7,15,0.96)_85%)]" />
+
+        {/* Subtle Stadium Floodlight Ambient Accents */}
+        <div className="absolute -top-32 left-1/4 h-80 w-80 rounded-full bg-amber-500/10 blur-[130px] pointer-events-none" />
+        <div className="absolute -bottom-32 right-1/4 h-80 w-80 rounded-full bg-orange-600/8 blur-[130px] pointer-events-none" />
+      </div>
+
+      <div className="relative z-10 flex flex-col min-h-screen">
+        <Navbar activeTab="dashboard" />
 
       <main className="flex-1 max-w-[1700px] mx-auto w-full px-4 sm:px-6 lg:px-8 py-6 space-y-6">
-        {/* Welcome Section */}
-        <div className="rounded-2xl border border-slate-800/90 bg-[#090e1e]/90 p-6 sm:p-8 backdrop-blur-md flex flex-col sm:flex-row items-start sm:items-center justify-between gap-6 shadow-2xl relative overflow-hidden">
-          <div className="absolute top-0 right-0 w-80 h-40 bg-amber-500/10 blur-3xl pointer-events-none" />
+        {/* Welcome Section with Panoramic Stadium Hero Graphic */}
+        <div className="rounded-2xl border border-amber-500/30 bg-[#090e1e]/95 p-6 sm:p-8 backdrop-blur-xl flex flex-col sm:flex-row items-start sm:items-center justify-between gap-6 shadow-2xl relative overflow-hidden group">
+          {/* Panoramic Stadium Banner Background */}
+          <div className="absolute inset-0 pointer-events-none z-0">
+            <Image
+              src="/images/npl-hero-banner.jpg"
+              alt="Stadium Hero Banner"
+              fill
+              priority
+              className="object-cover object-right sm:object-center opacity-65 group-hover:scale-105 transition-transform duration-700"
+            />
+            {/* Dark gradient mask on left so text stays 100% crystal clear */}
+            <div className="absolute inset-0 bg-gradient-to-r from-[#070c1a] via-[#070c1a]/85 to-transparent sm:w-2/3" />
+            <div className="absolute inset-0 bg-gradient-to-t from-[#070c1a]/80 via-transparent to-transparent" />
+            {/* Subtle amber rim glow */}
+            <div className="absolute -top-12 -right-12 w-48 h-48 bg-amber-500/20 rounded-full blur-3xl pointer-events-none" />
+          </div>
 
-          <div className="relative z-10">
-            <div className="inline-flex items-center gap-1.5 rounded-full bg-amber-500/15 px-3 py-1 text-xs font-black text-amber-400 mb-2 border border-amber-500/30">
-              <Sparkles className="h-3.5 w-3.5" />
-              <span>AUCTIONEER COMMAND CENTER</span>
-            </div>
-            <h1 className="text-2xl sm:text-3xl font-black text-white">
-              Welcome back, <span className="text-amber-400">{currentUser?.name || "Auctioneer"}</span>
+          <div className="relative z-10 max-w-2xl">
+            <h1 className="text-2xl sm:text-3xl lg:text-4xl font-black text-white tracking-tight drop-shadow-md">
+              Welcome back, <span className="bg-gradient-to-r from-amber-400 via-orange-400 to-amber-300 bg-clip-text text-transparent">{currentUser?.name || "Auctioneer"}</span>
             </h1>
-            <p className="text-xs sm:text-sm text-slate-400 mt-1 max-w-2xl">
+            <p className="text-xs sm:text-sm text-slate-300/90 mt-1.5 font-medium max-w-xl drop-shadow">
               Manage your Narayana Guru Premiere League live auctions, franchises, player rosters, and real-time bidding rooms.
             </p>
           </div>
 
-          <Link
-            href="/room/create"
-            className="flex items-center gap-2 rounded-xl bg-gradient-to-r from-amber-500 via-orange-500 to-amber-500 px-6 py-3.5 text-xs sm:text-sm font-black text-slate-950 hover:brightness-110 transition-all shadow-xl shadow-amber-500/25 shrink-0"
-          >
-            <Plus className="h-4 w-4" />
-            <span>Create New Auction Room</span>
-          </Link>
+          <div className="relative z-10">
+            <Link
+              href="/room/create"
+              className="flex items-center gap-2 rounded-xl bg-gradient-to-r from-amber-500 via-orange-500 to-amber-500 px-6 py-3.5 text-xs sm:text-sm font-black text-slate-950 hover:brightness-110 transition-all shadow-xl shadow-amber-500/30 shrink-0 hover:scale-[1.02] active:scale-[0.98]"
+            >
+              <Plus className="h-4 w-4 text-slate-950 stroke-[3]" />
+              <span>Create New Auction Room</span>
+            </Link>
+          </div>
         </div>
 
         {/* 5 KPI Metric Cards matching reference visual language */}
@@ -466,6 +498,7 @@ export default function DashboardPage() {
           )}
         </div>
       </main>
+      </div>
     </div>
   );
 }

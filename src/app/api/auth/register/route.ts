@@ -8,19 +8,28 @@ export async function POST(req: Request) {
     const body = await req.json();
     const { name, email, password, role = "AUCTIONEER" } = body;
 
-    if (!email || !name) {
-      return NextResponse.json({ error: "Name and email are required" }, { status: 400 });
+    const trimmedName = (name || "").trim();
+    if (!trimmedName) {
+      return NextResponse.json({ error: "Username is required" }, { status: 400 });
     }
 
     if (!password || password.length < 4) {
       return NextResponse.json({ error: "Password is mandatory (at least 4 characters)" }, { status: 400 });
     }
 
-    const trimmedEmail = email.toLowerCase().trim();
+    // If email is not explicitly provided, create an automatic email from username
+    const trimmedEmail = email && email.trim()
+      ? email.toLowerCase().trim()
+      : `${trimmedName.toLowerCase().replace(/[^a-z0-9]/g, "")}@npl.com`;
 
-    // Check existing user
-    let user = await prisma.user.findUnique({
-      where: { email: trimmedEmail },
+    // Check existing user by email or name
+    let user = await prisma.user.findFirst({
+      where: {
+        OR: [
+          { email: trimmedEmail },
+          { name: { equals: trimmedName, mode: "insensitive" } },
+        ],
+      },
     });
 
     const hashedPassword = hashPassword(password);
@@ -28,7 +37,7 @@ export async function POST(req: Request) {
     if (!user) {
       user = await prisma.user.create({
         data: {
-          name: name.trim(),
+          name: trimmedName,
           email: trimmedEmail,
           password: hashedPassword,
           role: role === "TEAM_OWNER" ? "TEAM_OWNER" : "AUCTIONEER",
@@ -38,7 +47,7 @@ export async function POST(req: Request) {
       user = await prisma.user.update({
         where: { id: user.id },
         data: {
-          name: name.trim(),
+          name: trimmedName,
           password: hashedPassword,
         },
       });

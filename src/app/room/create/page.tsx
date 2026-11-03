@@ -22,49 +22,6 @@ import {
 } from "lucide-react";
 import { PlayerPosition } from "@/types";
 
-const INITIAL_STAR_PLAYERS = [
-  {
-    name: "Sanju Varma",
-    position: "ATTACKER" as PlayerPosition,
-    photoUrl: "https://images.unsplash.com/photo-1546519638-68e109498ffc?w=500&auto=format&fit=crop&q=80",
-  },
-  {
-    name: "Arjun Nair",
-    position: "SETTER" as PlayerPosition,
-    photoUrl: "https://images.unsplash.com/photo-1519766304817-4f37bda74a29?w=500&auto=format&fit=crop&q=80",
-  },
-  {
-    name: "Pranav Kumar",
-    position: "LIBERO" as PlayerPosition,
-    photoUrl: "https://images.unsplash.com/photo-1534438327276-14e5300c3a48?w=500&auto=format&fit=crop&q=80",
-  },
-  {
-    name: "Gokul Das",
-    position: "DEFENDER" as PlayerPosition,
-    photoUrl: "https://images.unsplash.com/photo-1574629810360-7efbbe195018?w=500&auto=format&fit=crop&q=80",
-  },
-  {
-    name: "Vivek Menon",
-    position: "ALL_ROUNDER" as PlayerPosition,
-    photoUrl: "https://images.unsplash.com/photo-1517649763962-0c623266ddc0?w=500&auto=format&fit=crop&q=80",
-  },
-  {
-    name: "Rahul Chandran",
-    position: "ATTACKER" as PlayerPosition,
-    photoUrl: "https://images.unsplash.com/photo-1526676037777-05a232554f77?w=500&auto=format&fit=crop&q=80",
-  },
-  {
-    name: "Kiran Prasad",
-    position: "DEFENDER" as PlayerPosition,
-    photoUrl: "https://images.unsplash.com/photo-1568602471122-7832951cc4c5?w=500&auto=format&fit=crop&q=80",
-  },
-  {
-    name: "Anoop Raj",
-    position: "SETTER" as PlayerPosition,
-    photoUrl: "https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=500&auto=format&fit=crop&q=80",
-  },
-];
-
 export default function CreateRoomPage() {
   const router = useRouter();
   const [loading, setLoading] = useState(false);
@@ -81,10 +38,10 @@ export default function CreateRoomPage() {
   const defaultBidIncrement = 50;
   const timerDuration = 30;
 
-  // List of players input
+  // List of players input (starts empty - no auto-seeding)
   const [playerList, setPlayerList] = useState<
     Array<{ name: string; position: PlayerPosition; photoUrl?: string }>
-  >(INITIAL_STAR_PLAYERS);
+  >([]);
   const [newPlayerName, setNewPlayerName] = useState("");
   const [newPlayerPos, setNewPlayerPos] = useState<PlayerPosition>("ATTACKER");
   const [newPlayerPhoto, setNewPlayerPhoto] = useState<string>("");
@@ -195,18 +152,11 @@ export default function CreateRoomPage() {
         <div className="rounded-2xl border border-slate-800 bg-slate-900/80 p-6 sm:p-10 shadow-2xl backdrop-blur-md">
           <div className="border-b border-slate-800 pb-5 mb-6 flex items-center justify-between">
             <div>
-              <div className="inline-flex items-center gap-1.5 rounded-full bg-amber-500/10 px-3 py-1 text-xs font-bold text-amber-400 mb-2 border border-amber-500/20">
-                <Sparkles className="h-3.5 w-3.5" />
-                NARAYANA GURU PREMIERE LEAGUE
-              </div>
+
               <h1 className="text-2xl sm:text-3xl font-black text-white">Create Auction Room</h1>
               <p className="mt-1 text-xs text-slate-400">
                 Set tournament teams, match squad size (7+1), and add players with Cloudinary photos for live auction.
               </p>
-            </div>
-
-            <div className="hidden sm:flex h-12 w-12 items-center justify-center rounded-2xl bg-amber-500/10 text-amber-400">
-              <Trophy className="h-6 w-6" />
             </div>
           </div>
 
@@ -272,23 +222,6 @@ export default function CreateRoomPage() {
                 <p className="mt-1 text-[11px] text-slate-400">Default: 7 on court + 1 substitute (Total: {playersPerTeam})</p>
               </div>
             </div>
-
-            {/* Financial Parameters Reminder */}
-            <div className="grid grid-cols-3 gap-3 rounded-xl bg-slate-950/40 p-3 border border-slate-800/80 text-center text-xs">
-              <div>
-                <span className="text-[10px] uppercase font-bold text-slate-500">Purse Budget</span>
-                <p className="font-mono font-bold text-emerald-400">₹{startingPurse}</p>
-              </div>
-              <div>
-                <span className="text-[10px] uppercase font-bold text-slate-500">Player Base Price</span>
-                <p className="font-mono font-bold text-amber-400">₹{minBasePrice}</p>
-              </div>
-              <div>
-                <span className="text-[10px] uppercase font-bold text-slate-500">Bid Increment</span>
-                <p className="font-mono font-bold text-cyan-400">₹{defaultBidIncrement}</p>
-              </div>
-            </div>
-
             {/* List of Players Section with Cloudinary Photo Upload */}
             <div className="space-y-4 pt-2 border-t border-slate-800">
               <div className="flex items-center justify-between">
@@ -411,52 +344,44 @@ export default function CreateRoomPage() {
                     />
                   </div>
                 </div>
-              </div>
 
-              {/* Current Player Roster List */}
-              <div className="rounded-xl bg-slate-950/70 p-3 border border-slate-800/80 max-h-60 overflow-y-auto space-y-1.5">
-                {playerList.map((p, idx) => (
-                  <div
-                    key={idx}
-                    className="flex items-center justify-between rounded-lg bg-slate-900/90 px-3 py-2 text-xs border border-slate-800 hover:border-slate-700 transition-colors"
-                  >
-                    <div className="flex items-center gap-3">
-                      <span className="font-mono text-[10px] text-slate-500 w-5">#{idx + 1}</span>
-
-                      {/* Photo Thumbnail */}
-                      <div className="relative h-7 w-7 rounded-full overflow-hidden bg-slate-800 border border-slate-700 shrink-0">
-                        {p.photoUrl ? (
-                          <Image
-                            src={p.photoUrl}
-                            alt={p.name}
-                            fill
-                            className="object-cover"
-                            unoptimized
-                          />
-                        ) : (
-                          <div className="h-full w-full flex items-center justify-center text-[10px] font-black text-amber-400 bg-amber-500/10">
-                            {p.name.charAt(0)}
+                {/* Added Players List */}
+                {playerList.length > 0 ? (
+                  <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2 pt-2 border-t border-slate-900">
+                    {playerList.map((p, idx) => (
+                      <div
+                        key={idx}
+                        className="flex items-center justify-between gap-2 rounded-xl bg-slate-900/90 border border-slate-800 p-2 text-xs"
+                      >
+                        <div className="flex items-center gap-2 min-w-0">
+                          <div className="relative h-7 w-7 rounded-full overflow-hidden bg-slate-800 shrink-0">
+                            {p.photoUrl ? (
+                              <Image src={p.photoUrl} alt={p.name} fill className="object-cover" unoptimized />
+                            ) : (
+                              <User className="h-4 w-4 m-auto text-slate-500" />
+                            )}
                           </div>
-                        )}
+                          <div className="truncate">
+                            <span className="font-bold text-white block truncate">{p.name}</span>
+                            <span className="text-[10px] text-amber-400 font-mono">{p.position}</span>
+                          </div>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => handleRemovePlayer(idx)}
+                          className="text-slate-500 hover:text-rose-400 p-1 transition-colors shrink-0"
+                          title="Remove player"
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </button>
                       </div>
-
-                      <span className="font-bold text-white">{p.name}</span>
-
-                      <span className="text-[10px] px-2 py-0.5 rounded bg-amber-500/10 text-amber-400 border border-amber-500/20 font-semibold uppercase">
-                        {p.position}
-                      </span>
-                    </div>
-
-                    <button
-                      type="button"
-                      onClick={() => handleRemovePlayer(idx)}
-                      className="text-slate-500 hover:text-rose-400 p-1 transition-colors"
-                      title="Remove player"
-                    >
-                      <Trash2 className="h-3.5 w-3.5" />
-                    </button>
+                    ))}
                   </div>
-                ))}
+                ) : (
+                  <div className="text-center py-3 px-3 rounded-xl border border-dashed border-slate-800/80 text-slate-500 text-xs">
+                    No players added yet. Add players above or add them later inside the room management page.
+                  </div>
+                )}
               </div>
             </div>
 

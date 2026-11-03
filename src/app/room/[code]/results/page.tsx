@@ -103,17 +103,27 @@ export default function AuctionResultsPage({ params }: { params: Promise<{ code:
   }
 
   return (
-    <div className="min-h-screen bg-[#070b16] text-slate-100 flex flex-col arena-court-bg">
-      <Navbar roomCode={code} roomTitle={data.room.title} activeTab="results" />
+    <div className="min-h-screen bg-[#060913] text-slate-100 flex flex-col relative overflow-x-hidden">
+      {/* 1. CINEMATIC VOLLEYBALL STADIUM ARENA BACKGROUND */}
+      <div className="fixed inset-0 z-0 pointer-events-none">
+        <Image
+          src="/images/npl-dashboard-bg.jpg"
+          alt="Volleyball Arena Stadium"
+          fill
+          priority
+          className="object-cover object-center opacity-25 brightness-80 contrast-125 scale-105"
+        />
+        <div className="absolute inset-0 bg-gradient-to-b from-[#060913]/95 via-[#070b18]/85 to-[#060913]/98" />
+        <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_center,_transparent_20%,_rgba(4,7,16,0.95)_85%)]" />
+      </div>
+
+      <div className="relative z-10 flex flex-col min-h-screen">
+        <Navbar roomCode={code} roomTitle={data.room.title} activeTab="results" />
 
       <div className="flex-1 max-w-7xl mx-auto w-full px-4 sm:px-6 lg:px-8 py-8 space-y-8">
         {/* Header */}
         <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 border-b border-slate-800 pb-6">
           <div>
-            <div className="inline-flex items-center gap-1.5 rounded-full bg-amber-500/10 px-3 py-1 text-xs font-bold text-amber-400 mb-2 border border-amber-500/20">
-              <Trophy className="h-3.5 w-3.5" />
-              OFFICIAL AUCTION RESULTS
-            </div>
             <h1 className="text-3xl sm:text-4xl font-black text-white">{data.room.title}</h1>
             <p className="text-xs text-slate-400 mt-1 font-mono">
               ROOM CODE: {data.room.roomCode}
@@ -327,6 +337,7 @@ export default function AuctionResultsPage({ params }: { params: Promise<{ code:
             </div>
           </div>
         )}
+      </div>
       </div>
     </div>
   );

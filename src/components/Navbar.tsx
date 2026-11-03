@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import Image from "next/image";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import {
@@ -11,7 +12,8 @@ import {
   FileSpreadsheet,
   LogOut,
   Gavel,
-  ShieldCheck,
+  Menu,
+  X,
 } from "lucide-react";
 import { SessionUser } from "@/types";
 
@@ -30,6 +32,7 @@ export default function Navbar({
 }: NavbarProps) {
   const router = useRouter();
   const [user, setUser] = useState<SessionUser | null>(null);
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
   useEffect(() => {
     fetch("/api/auth/me")
@@ -46,52 +49,35 @@ export default function Navbar({
     router.push("/");
   };
 
-  const isLive = roomStatus === "LIVE";
-
   return (
     <header className="sticky top-0 z-50 border-b border-slate-800/80 bg-[#070b16]/95 backdrop-blur-md">
       <div className="mx-auto flex h-16 max-w-[1700px] items-center justify-between px-3 sm:px-6 lg:px-8">
-        {/* Brand Left: Volleyball Icon + NPL AUCTION + LIVE badge + League subtitle */}
-        <div className="flex items-center gap-3">
-          <Link href="/" className="flex items-center gap-2.5 group">
-            {/* Volleyball Golden Ball Icon */}
-            <div className="flex h-10 w-10 items-center justify-center rounded-full bg-gradient-to-br from-amber-400 to-orange-600 text-slate-950 shadow-lg shadow-orange-500/25 group-hover:scale-105 transition-transform">
-              <svg
-                className="h-6 w-6 text-slate-950"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              >
-                <circle cx="12" cy="12" r="10" />
-                <path d="m4.93 4.93 4.24 4.24" />
-                <path d="m14.83 9.17 4.24-4.24" />
-                <path d="m14.83 14.83 4.24 4.24" />
-                <path d="m9.17 14.83-4.24 4.24" />
-                <circle cx="12" cy="12" r="4" />
-              </svg>
+        {/* Brand Left: NPL Logo + NPL AUCTION Title */}
+        <div className="flex items-center gap-2 sm:gap-3">
+          <Link href="/dashboard" className="flex items-center gap-2.5 sm:gap-3 group">
+            {/* Tournament Logo */}
+            <div className="relative h-10 w-10 sm:h-11 sm:w-11 drop-shadow-[0_0_12px_rgba(245,158,11,0.4)] group-hover:scale-105 transition-transform shrink-0">
+              <Image
+                src="/logo.png"
+                alt="NPL Logo"
+                fill
+                className="object-contain"
+                priority
+              />
             </div>
 
             <div className="flex flex-col">
-              <div className="flex items-center gap-2">
-                <span className="font-black tracking-tight text-lg text-white">
-                  NPL <span className="text-amber-400">AUCTION</span>
-                </span>
-                <span className="inline-flex items-center gap-1 rounded-full bg-rose-500 px-2 py-0.5 text-[9px] font-black text-white shadow-sm shadow-rose-500/40">
-                  <span className="h-1.5 w-1.5 rounded-full bg-white animate-ping" />
-                  LIVE
-                </span>
-              </div>
-              <span className="text-[9px] text-slate-400 tracking-wider uppercase font-bold">
+              <span className="font-black tracking-tight text-base sm:text-lg text-white whitespace-nowrap">
+                NPL <span className="bg-gradient-to-r from-amber-400 via-orange-400 to-amber-400 bg-clip-text text-transparent">AUCTION</span>
+              </span>
+              <span className="hidden sm:block text-[9px] text-slate-400 tracking-wider uppercase font-bold">
                 NARAYANA GURU PREMIERE LEAGUE
               </span>
             </div>
           </Link>
         </div>
 
-        {/* Center Navigation Tabs - exactly matching reference screenshot */}
+        {/* Center Navigation Tabs (Desktop) */}
         <nav className="hidden md:flex items-center gap-1">
           <Link
             href="/dashboard"
@@ -168,15 +154,16 @@ export default function Navbar({
           )}
         </nav>
 
-        {/* Right Section: Room Code Pill + User Profile */}
-        <div className="flex items-center gap-3">
+        {/* Right Section: Room Code Pill + User Profile + Mobile Menu Trigger */}
+        <div className="flex items-center gap-1.5 sm:gap-3">
           {/* Room Code Badge */}
           {roomCode && (
-            <div className="flex items-center gap-2 rounded-xl bg-slate-900/90 border border-slate-800 px-3 py-1.5 shadow-inner">
-              <span className="font-mono text-xs font-black text-slate-300">
-                ROOM: <strong className="text-amber-400">{roomCode}</strong>
+            <div className="flex items-center gap-1 sm:gap-2 rounded-xl bg-slate-900/90 border border-slate-800 px-2 sm:px-3 py-1 sm:py-1.5 shadow-inner">
+              <span className="font-mono text-[10px] sm:text-xs font-black text-slate-300">
+                <span className="hidden sm:inline">ROOM: </span>
+                <strong className="text-amber-400">{roomCode}</strong>
               </span>
-              <span className="flex items-center gap-1 rounded-md bg-emerald-500/15 px-1.5 py-0.5 text-[9px] font-black uppercase text-emerald-400 border border-emerald-500/30">
+              <span className="flex items-center gap-1 rounded-md bg-emerald-500/15 px-1 sm:px-1.5 py-0.5 text-[8px] sm:text-[9px] font-black uppercase text-emerald-400 border border-emerald-500/30">
                 <span className="h-1.5 w-1.5 rounded-full bg-emerald-400 animate-pulse" />
                 {roomStatus}
               </span>
@@ -185,15 +172,15 @@ export default function Navbar({
 
           {/* User Profile / Login */}
           {user ? (
-            <div className="flex items-center gap-2.5">
-              <div className="flex items-center gap-2 rounded-xl bg-slate-900/80 border border-slate-800 py-1 px-2.5">
+            <div className="flex items-center gap-1.5 sm:gap-2.5">
+              <div className="flex items-center gap-1.5 sm:gap-2 rounded-xl bg-slate-900/80 border border-slate-800 py-1 px-1.5 sm:px-2.5">
                 {/* Orange Circular Avatar with initial */}
-                <div className="flex h-8 w-8 items-center justify-center rounded-full bg-gradient-to-br from-amber-500 to-orange-600 text-xs font-black text-slate-950 shadow-md">
+                <div className="flex h-7 w-7 sm:h-8 sm:w-8 items-center justify-center rounded-full bg-gradient-to-br from-amber-500 to-orange-600 text-xs font-black text-slate-950 shadow-md shrink-0">
                   {user.name.charAt(0).toUpperCase()}
                 </div>
 
                 <div className="hidden sm:flex flex-col text-left">
-                  <span className="text-xs font-bold text-white leading-tight">
+                  <span className="text-xs font-bold text-white leading-tight max-w-[100px] truncate">
                     {user.name}
                   </span>
                   <span className="text-[10px] text-amber-400/90 font-medium flex items-center gap-1">
@@ -211,29 +198,112 @@ export default function Navbar({
               <button
                 onClick={handleLogout}
                 title="Log Out"
-                className="rounded-xl border border-slate-800 bg-slate-900/80 p-2 text-slate-400 hover:text-rose-400 hover:bg-slate-800 transition-colors"
+                className="rounded-xl border border-slate-800 bg-slate-900/80 p-1.5 sm:p-2 text-slate-400 hover:text-rose-400 hover:bg-slate-800 transition-colors"
               >
-                <LogOut className="h-4 w-4" />
+                <LogOut className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
               </button>
             </div>
           ) : (
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-1.5 sm:gap-2">
               <Link
                 href="/auth/login"
-                className="rounded-xl px-3.5 py-1.5 text-xs font-bold text-slate-300 hover:text-white bg-slate-900 border border-slate-800"
+                className="rounded-xl px-2.5 sm:px-3.5 py-1 sm:py-1.5 text-xs font-bold text-slate-300 hover:text-white bg-slate-900 border border-slate-800"
               >
                 Log In
               </Link>
               <Link
                 href="/auth/register"
-                className="rounded-xl bg-amber-500 px-3.5 py-1.5 text-xs font-black text-slate-950 hover:bg-amber-400 transition-colors shadow-md shadow-amber-500/20"
+                className="rounded-xl bg-amber-500 px-2.5 sm:px-3.5 py-1 sm:py-1.5 text-xs font-black text-slate-950 hover:bg-amber-400 transition-colors shadow-md shadow-amber-500/20"
               >
                 Sign Up
               </Link>
             </div>
           )}
+
+          {/* Mobile Menu Hamburger */}
+          <button
+            type="button"
+            onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
+            className="md:hidden rounded-xl border border-slate-800 bg-slate-900/90 p-1.5 text-slate-300 hover:text-white"
+          >
+            {mobileMenuOpen ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
+          </button>
         </div>
       </div>
+
+      {/* Mobile Drawer Menu */}
+      {mobileMenuOpen && (
+        <div className="md:hidden border-t border-slate-800/90 bg-[#080d1b] px-4 py-3 space-y-2 animate-in slide-in-from-top duration-200">
+          <Link
+            href="/dashboard"
+            onClick={() => setMobileMenuOpen(false)}
+            className={`flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-xs font-bold ${
+              activeTab === "dashboard"
+                ? "bg-amber-500/15 text-amber-400 border border-amber-500/30"
+                : "text-slate-300 hover:bg-slate-900"
+            }`}
+          >
+            <LayoutDashboard className="h-4 w-4 text-amber-400" />
+            <span>Dashboard</span>
+          </Link>
+
+          <Link
+            href="/dashboard"
+            onClick={() => setMobileMenuOpen(false)}
+            className={`flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-xs font-bold ${
+              activeTab === "rooms"
+                ? "bg-amber-500/15 text-amber-400 border border-amber-500/30"
+                : "text-slate-300 hover:bg-slate-900"
+            }`}
+          >
+            <Layers className="h-4 w-4 text-amber-400" />
+            <span>Rooms</span>
+          </Link>
+
+          {roomCode && (
+            <>
+              <Link
+                href={`/room/${roomCode}/live`}
+                onClick={() => setMobileMenuOpen(false)}
+                className={`flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-xs font-black ${
+                  activeTab === "live"
+                    ? "bg-amber-500/20 text-amber-400 border border-amber-500/40"
+                    : "text-slate-300 hover:bg-slate-900"
+                }`}
+              >
+                <Radio className="h-4 w-4 text-amber-400 animate-pulse" />
+                <span>Live Auction Arena</span>
+              </Link>
+
+              <Link
+                href={`/room/${roomCode}/players`}
+                onClick={() => setMobileMenuOpen(false)}
+                className={`flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-xs font-bold ${
+                  activeTab === "players"
+                    ? "bg-amber-500/15 text-amber-400 border border-amber-500/30"
+                    : "text-slate-300 hover:bg-slate-900"
+                }`}
+              >
+                <Users className="h-4 w-4 text-cyan-400" />
+                <span>Player Rosters</span>
+              </Link>
+
+              <Link
+                href={`/room/${roomCode}/results`}
+                onClick={() => setMobileMenuOpen(false)}
+                className={`flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-xs font-bold ${
+                  activeTab === "results"
+                    ? "bg-amber-500/15 text-amber-400 border border-amber-500/30"
+                    : "text-slate-300 hover:bg-slate-900"
+                }`}
+              >
+                <FileSpreadsheet className="h-4 w-4 text-emerald-400" />
+                <span>Auction Results</span>
+              </Link>
+            </>
+          )}
+        </div>
+      )}
     </header>
   );
 }
