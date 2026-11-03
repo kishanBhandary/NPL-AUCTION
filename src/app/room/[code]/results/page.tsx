@@ -121,21 +121,40 @@ export default function AuctionResultsPage({ params }: { params: Promise<{ code:
         <Navbar roomCode={code} roomTitle={data.room.title} activeTab="results" />
 
       <div className="flex-1 max-w-7xl mx-auto w-full px-4 sm:px-6 lg:px-8 py-8 space-y-8">
-        {/* Header */}
-        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 border-b border-slate-800 pb-6">
-          <div>
-            <h1 className="text-3xl sm:text-4xl font-black text-white">{data.room.title}</h1>
-            <p className="text-xs text-slate-400 mt-1 font-mono">
-              ROOM CODE: {data.room.roomCode}
+        {/* Header Hero Banner */}
+        <div className="relative rounded-2xl border border-amber-500/30 bg-[#090e1e]/95 p-5 sm:p-6 shadow-2xl overflow-hidden backdrop-blur-xl flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 group">
+          <div className="absolute inset-0 pointer-events-none z-0">
+            <Image
+              src="/images/npl-hero-banner.jpg"
+              alt="Stadium Hero Banner"
+              fill
+              priority
+              className="object-cover object-right sm:object-center opacity-60 group-hover:scale-105 transition-transform duration-700"
+            />
+            <div className="absolute inset-0 bg-gradient-to-r from-[#070c1a] via-[#070c1a]/85 to-transparent sm:w-2/3" />
+            <div className="absolute inset-0 bg-gradient-to-t from-[#070c1a]/80 via-transparent to-transparent" />
+            <div className="absolute -top-12 -right-12 w-48 h-48 bg-amber-500/20 rounded-full blur-3xl pointer-events-none" />
+          </div>
+
+          <div className="relative z-10">
+            <div className="inline-flex items-center gap-1.5 rounded-full bg-amber-500/15 border border-amber-500/40 px-3 py-0.5 text-[10px] font-black uppercase tracking-wider text-amber-300 mb-2">
+              <Trophy className="h-3 w-3 text-amber-400" />
+              <span>Auction Results & Final Rosters</span>
+            </div>
+            <h1 className="text-2xl sm:text-3xl lg:text-4xl font-black text-white drop-shadow">
+              {data.room.title}
+            </h1>
+            <p className="text-xs sm:text-sm text-slate-300/90 mt-1 font-mono">
+              ROOM CODE: <span className="text-amber-400 font-bold">{data.room.roomCode}</span>
             </p>
           </div>
 
-          <div className="flex items-center gap-3">
+          <div className="relative z-10 flex items-center gap-3">
             <Link
               href={`/room/${code}/live`}
-              className="flex items-center gap-2 rounded-xl bg-slate-800 px-4 py-2.5 text-xs font-bold text-slate-200 hover:bg-slate-700 transition-colors border border-slate-700"
+              className="flex items-center gap-2 rounded-xl bg-gradient-to-r from-amber-500 via-orange-500 to-amber-500 px-5 py-2.5 text-xs font-black text-slate-950 hover:brightness-110 shadow-lg shadow-amber-500/25 transition-all"
             >
-              <Radio className="h-4 w-4 text-rose-500 animate-pulse" />
+              <Radio className="h-4 w-4 text-slate-950 animate-pulse" />
               <span>Back to Arena</span>
             </Link>
           </div>

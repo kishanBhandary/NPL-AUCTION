@@ -192,6 +192,7 @@ export default function DashboardPage() {
           </div>
 
           <div className="relative z-10 max-w-2xl">
+
             <h1 className="text-2xl sm:text-3xl lg:text-4xl font-black text-white tracking-tight drop-shadow-md">
               Welcome back, <span className="bg-gradient-to-r from-amber-400 via-orange-400 to-amber-300 bg-clip-text text-transparent">{currentUser?.name || "Auctioneer"}</span>
             </h1>

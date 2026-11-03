@@ -211,26 +211,41 @@ export default function WaitingRoomPage({ params }: { params: Promise<{ code: st
         <Navbar roomCode={code} roomTitle={room?.title} roomStatus={room?.status} activeTab="rooms" />
 
       <div className="flex-1 max-w-7xl mx-auto w-full px-3 sm:px-6 lg:px-8 py-4 sm:py-8 space-y-4 sm:space-y-6">
-        {/* Banner with Share Link and Controls */}
-        <div className="rounded-2xl border border-slate-800 bg-[#090e1c]/90 p-4 sm:p-6 shadow-xl backdrop-blur-md flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
-          <div>
+        {/* Banner with Panoramic Stadium Hero Graphic */}
+        <div className="relative rounded-2xl border border-amber-500/30 bg-[#090e1e]/95 p-4 sm:p-6 shadow-2xl overflow-hidden backdrop-blur-xl flex flex-col md:flex-row items-start md:items-center justify-between gap-4 group">
+          {/* Panoramic Stadium Banner Background */}
+          <div className="absolute inset-0 pointer-events-none z-0">
+            <Image
+              src="/images/npl-hero-banner.jpg"
+              alt="Stadium Hero Banner"
+              fill
+              priority
+              className="object-cover object-right sm:object-center opacity-60 group-hover:scale-105 transition-transform duration-700"
+            />
+            <div className="absolute inset-0 bg-gradient-to-r from-[#070c1a] via-[#070c1a]/85 to-transparent sm:w-2/3" />
+            <div className="absolute inset-0 bg-gradient-to-t from-[#070c1a]/80 via-transparent to-transparent" />
+            <div className="absolute -top-12 -right-12 w-48 h-48 bg-amber-500/20 rounded-full blur-3xl pointer-events-none" />
+          </div>
+
+          <div className="relative z-10">
             <div className="flex items-center gap-2">
               <span className="font-mono text-[11px] sm:text-xs font-black text-amber-400 tracking-wider">
                 ROOM CODE: {code}
               </span>
-              <span className="inline-flex items-center gap-1 rounded-lg bg-amber-500/15 px-2 py-0.5 text-[9px] sm:text-[10px] font-black text-amber-400 border border-amber-500/30">
-                WAITING ROOM
+              <span className="inline-flex items-center gap-1 rounded-full bg-amber-500/15 px-2.5 py-0.5 text-[9px] sm:text-[10px] font-black text-amber-300 border border-amber-500/40">
+                <Radio className="h-3 w-3 text-amber-400 animate-pulse" />
+                <span>WAITING ROOM</span>
               </span>
             </div>
-            <h1 className="text-xl sm:text-2xl lg:text-3xl font-black text-white mt-1">
+            <h1 className="text-xl sm:text-2xl lg:text-3xl font-black text-white mt-1 drop-shadow">
               {room?.title}
             </h1>
-            <p className="text-xs text-slate-400 mt-0.5">
-              Organized by <strong className="text-slate-200">{room?.owner.name}</strong> • Share link to register franchises
+            <p className="text-xs text-slate-300/90 mt-0.5 drop-shadow">
+              Organized by <strong className="text-white font-bold">{room?.owner.name}</strong> • Share link to register franchises
             </p>
           </div>
 
-          <div className="flex flex-wrap items-center gap-2 sm:gap-3 w-full sm:w-auto">
+          <div className="relative z-10 flex flex-wrap items-center gap-2 sm:gap-3 w-full sm:w-auto">
             <button
               onClick={copyInviteLink}
               className="flex-1 sm:flex-initial flex items-center justify-center gap-1.5 sm:gap-2 rounded-xl bg-slate-900 px-3 sm:px-4 py-2 sm:py-2.5 text-xs font-bold text-slate-200 hover:bg-slate-800 border border-slate-800 transition-colors"

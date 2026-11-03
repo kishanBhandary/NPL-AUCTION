@@ -132,19 +132,52 @@ export default function PlayersPage({ params }: { params: Promise<{ code: string
   }
 
   return (
-    <div className="min-h-screen bg-[#070b16] text-slate-100 flex flex-col arena-court-bg">
-      <Navbar roomCode={code} roomTitle={roomTitle} activeTab="players" />
+    <div className="min-h-screen bg-[#060913] text-slate-100 flex flex-col relative overflow-x-hidden">
+      {/* 1. CINEMATIC VOLLEYBALL STADIUM ARENA BACKGROUND */}
+      <div className="fixed inset-0 z-0 pointer-events-none">
+        <Image
+          src="/images/npl-dashboard-bg.jpg"
+          alt="Volleyball Arena Stadium"
+          fill
+          priority
+          className="object-cover object-center opacity-25 brightness-80 contrast-125 scale-105"
+        />
+        <div className="absolute inset-0 bg-gradient-to-b from-[#060913]/95 via-[#070b18]/85 to-[#060913]/98" />
+        <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_center,_transparent_20%,_rgba(4,7,16,0.95)_85%)]" />
+      </div>
 
-      <div className="flex-1 max-w-7xl mx-auto w-full px-4 sm:px-6 lg:px-8 py-8 space-y-8">
-        {/* Top Header */}
-        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 border-b border-slate-800 pb-6">
-          <div>
-            <h1 className="text-3xl font-black text-white">NPL Player Pool</h1>
-            <p className="text-xs text-slate-400 mt-1">
-              {players.length} players registered • Base price: ₹{minBasePrice} for all players
-            </p>
+      <div className="relative z-10 flex flex-col min-h-screen">
+        <Navbar roomCode={code} roomTitle={roomTitle} activeTab="players" />
+
+        <div className="flex-1 max-w-7xl mx-auto w-full px-4 sm:px-6 lg:px-8 py-8 space-y-8">
+          {/* Top Header Hero Banner */}
+          <div className="relative rounded-2xl border border-amber-500/30 bg-[#090e1e]/95 p-5 sm:p-6 shadow-2xl overflow-hidden backdrop-blur-xl flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 group">
+            <div className="absolute inset-0 pointer-events-none z-0">
+              <Image
+                src="/images/npl-hero-banner.jpg"
+                alt="Stadium Hero Banner"
+                fill
+                priority
+                className="object-cover object-right sm:object-center opacity-60 group-hover:scale-105 transition-transform duration-700"
+              />
+              <div className="absolute inset-0 bg-gradient-to-r from-[#070c1a] via-[#070c1a]/85 to-transparent sm:w-2/3" />
+              <div className="absolute inset-0 bg-gradient-to-t from-[#070c1a]/80 via-transparent to-transparent" />
+              <div className="absolute -top-12 -right-12 w-48 h-48 bg-amber-500/20 rounded-full blur-3xl pointer-events-none" />
+            </div>
+
+            <div className="relative z-10">
+              <div className="inline-flex items-center gap-1.5 rounded-full bg-amber-500/15 border border-amber-500/40 px-3 py-0.5 text-[10px] font-black uppercase tracking-wider text-amber-300 mb-2">
+                <Zap className="h-3 w-3 text-amber-400" />
+                <span>NPL Athlete Roster</span>
+              </div>
+              <h1 className="text-2xl sm:text-3xl lg:text-4xl font-black text-white drop-shadow">
+                NPL Player Pool
+              </h1>
+              <p className="text-xs sm:text-sm text-slate-300/90 mt-1 font-medium drop-shadow">
+                {players.length} registered athletes • Fixed Base Price: ₹{minBasePrice}
+              </p>
+            </div>
           </div>
-        </div>
 
         {error && (
           <div className="rounded-xl bg-rose-500/10 p-4 text-xs font-semibold text-rose-400 border border-rose-500/20">
@@ -305,6 +338,7 @@ export default function PlayersPage({ params }: { params: Promise<{ code: string
             )}
           </div>
         </div>
+      </div>
       </div>
     </div>
   );

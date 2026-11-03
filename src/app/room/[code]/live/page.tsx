@@ -1091,77 +1091,93 @@ export default function LiveAuctionPage({ params }: { params: Promise<{ code: st
           </div>
         )}
 
-        {/* SUBHEADER BAR: Responsively scales from 360px phones to large desktops */}
-        <div className="flex flex-col md:flex-row items-center justify-between gap-2 sm:gap-4 pt-1">
-          <div className="flex items-center justify-between w-full md:w-auto gap-2">
-            <button
-              onClick={() => setSoundEnabled(!soundEnabled)}
-              title={soundEnabled ? "Mute Arena Audio" : "Enable Arena Audio"}
-              className="flex items-center gap-1.5 rounded-xl bg-slate-900/80 px-2.5 sm:px-3 py-1.5 text-xs font-bold text-slate-400 hover:text-white border border-slate-800"
-            >
-              {soundEnabled ? (
-                <>
-                  <Volume2 className="h-3.5 w-3.5 text-amber-400" />
-                  <span className="text-[11px]">Audio ON</span>
-                </>
-              ) : (
-                <>
-                  <VolumeX className="h-3.5 w-3.5 text-slate-500" />
-                  <span className="text-[11px]">Muted</span>
-                </>
-              )}
-            </button>
+        {/* SUBHEADER HERO BANNER: Stadium Atmosphere Banner */}
+        <div className="relative rounded-2xl border border-amber-500/30 bg-[#090e1e]/90 p-3.5 sm:p-5 shadow-2xl overflow-hidden backdrop-blur-xl group">
+          {/* Panoramic Stadium Banner Background */}
+          <div className="absolute inset-0 pointer-events-none z-0">
+            <Image
+              src="/images/npl-hero-banner.jpg"
+              alt="Stadium Hero Banner"
+              fill
+              priority
+              className="object-cover object-center opacity-55 group-hover:scale-105 transition-transform duration-700"
+            />
+            <div className="absolute inset-0 bg-gradient-to-r from-[#070c1a]/95 via-[#070c1a]/75 to-[#070c1a]/95" />
+            <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_center,_transparent_30%,_rgba(7,12,26,0.9)_100%)]" />
+            <div className="absolute -top-12 -right-12 w-48 h-48 bg-amber-500/20 rounded-full blur-3xl pointer-events-none" />
+          </div>
 
-            {/* Team Owner Won Squad Quick Access Button */}
-            {isTeamOwner && userTeam && (
+          <div className="relative z-10 flex flex-col md:flex-row items-center justify-between gap-3 sm:gap-4">
+            <div className="flex items-center justify-between w-full md:w-auto gap-2">
               <button
-                type="button"
-                onClick={() => setSelectedTeamSquad(userTeam)}
-                className="flex items-center gap-1.5 rounded-xl bg-gradient-to-r from-purple-900/70 to-purple-800/70 text-purple-200 border border-purple-500/40 px-2.5 sm:px-3 py-1.5 text-xs font-black transition-all shadow-md hover:scale-105"
+                onClick={() => setSoundEnabled(!soundEnabled)}
+                title={soundEnabled ? "Mute Arena Audio" : "Enable Arena Audio"}
+                className="flex items-center gap-1.5 rounded-xl bg-slate-900/80 px-2.5 sm:px-3 py-1.5 text-xs font-bold text-slate-300 hover:text-white border border-slate-700/80 hover:border-amber-500/50 transition-all shadow-sm"
               >
-                <Trophy className="h-3 w-3 text-amber-400" />
-                <span className="text-[11px]">My Won Players ({(userTeam.squad?.length || 0) + (userTeam.mainPlayerName ? 1 : 0)})</span>
+                {soundEnabled ? (
+                  <>
+                    <Volume2 className="h-3.5 w-3.5 text-amber-400" />
+                    <span className="text-[11px]">Audio ON</span>
+                  </>
+                ) : (
+                  <>
+                    <VolumeX className="h-3.5 w-3.5 text-slate-500" />
+                    <span className="text-[11px]">Muted</span>
+                  </>
+                )}
               </button>
-            )}
-          </div>
 
-          <div className="text-center">
-            <div className="inline-flex items-center gap-1 text-[10px] sm:text-xs font-black uppercase tracking-wider text-amber-400 mb-0.5">
-              <Trophy className="h-3 w-3 text-amber-400" />
-              <span>NARAYANA GURU PREMIERE LEAGUE</span>
-            </div>
-            <h1 className="text-xl sm:text-2xl lg:text-3xl font-black tracking-tight text-white">
-              LIVE <span className="bg-gradient-to-r from-amber-400 via-orange-400 to-amber-500 bg-clip-text text-transparent">AUCTION ARENA</span>
-            </h1>
-          </div>
-
-          {/* 3 Stat Badges: Base Price, Bid Increment, Team Purse */}
-          <div className="grid grid-cols-3 gap-1.5 sm:gap-2.5 w-full sm:w-auto">
-            <div className="rounded-xl bg-[#0b1021] border border-slate-800 px-2 sm:px-3.5 py-1 sm:py-1.5 text-center shadow-md">
-              <span className="text-xs sm:text-sm font-black font-mono text-white block">
-                ₹{room?.minBasePrice || 50}
-              </span>
-              <span className="text-[8px] sm:text-[9px] font-bold uppercase text-slate-400 block tracking-wider">
-                Base Price
-              </span>
+              {/* Team Owner Won Squad Quick Access Button */}
+              {isTeamOwner && userTeam && (
+                <button
+                  type="button"
+                  onClick={() => setSelectedTeamSquad(userTeam)}
+                  className="flex items-center gap-1.5 rounded-xl bg-gradient-to-r from-purple-900/80 to-purple-800/80 text-purple-200 border border-purple-500/40 px-2.5 sm:px-3 py-1.5 text-xs font-black transition-all shadow-md hover:scale-105"
+                >
+                  <Trophy className="h-3 w-3 text-amber-400" />
+                  <span className="text-[11px]">My Won Players ({(userTeam.squad?.length || 0) + (userTeam.mainPlayerName ? 1 : 0)})</span>
+                </button>
+              )}
             </div>
 
-            <div className="rounded-xl bg-[#0b1021] border border-slate-800 px-2 sm:px-3.5 py-1 sm:py-1.5 text-center shadow-md">
-              <span className="text-xs sm:text-sm font-black font-mono text-cyan-400 block">
-                ₹{room?.defaultBidIncrement || 50}
-              </span>
-              <span className="text-[8px] sm:text-[9px] font-bold uppercase text-slate-400 block tracking-wider">
-                Increment
-              </span>
+            <div className="text-center">
+              <div className="inline-flex items-center gap-1.5 rounded-full bg-amber-500/15 border border-amber-500/40 px-3 py-0.5 text-[9px] sm:text-[10px] font-black uppercase tracking-wider text-amber-300 mb-1">
+                <Trophy className="h-3 w-3 text-amber-400" />
+                <span>NARAYANA GURU PREMIERE LEAGUE</span>
+              </div>
+              <h1 className="text-xl sm:text-2xl lg:text-3xl font-black tracking-tight text-white drop-shadow">
+                LIVE <span className="bg-gradient-to-r from-amber-400 via-orange-400 to-amber-500 bg-clip-text text-transparent">AUCTION ARENA</span>
+              </h1>
             </div>
 
-            <div className="rounded-xl bg-[#0b1021] border border-slate-800 px-2 sm:px-3.5 py-1 sm:py-1.5 text-center shadow-md">
-              <span className="text-xs sm:text-sm font-black font-mono text-emerald-400 block">
-                ₹{room?.startingPurse?.toLocaleString("en-IN") || "5,000"}
-              </span>
-              <span className="text-[8px] sm:text-[9px] font-bold uppercase text-slate-400 block tracking-wider">
-                Team Purse
-              </span>
+            {/* 3 Stat Badges: Base Price, Bid Increment, Team Purse */}
+            <div className="grid grid-cols-3 gap-1.5 sm:gap-2.5 w-full md:w-auto">
+              <div className="rounded-xl bg-[#0b1021]/90 border border-amber-500/30 px-2 sm:px-3.5 py-1 sm:py-1.5 text-center shadow-md">
+                <span className="text-xs sm:text-sm font-black font-mono text-white block">
+                  ₹{room?.minBasePrice || 50}
+                </span>
+                <span className="text-[8px] sm:text-[9px] font-bold uppercase text-slate-400 block tracking-wider">
+                  Base Price
+                </span>
+              </div>
+
+              <div className="rounded-xl bg-[#0b1021]/90 border border-cyan-500/30 px-2 sm:px-3.5 py-1 sm:py-1.5 text-center shadow-md">
+                <span className="text-xs sm:text-sm font-black font-mono text-cyan-400 block">
+                  ₹{room?.defaultBidIncrement || 50}
+                </span>
+                <span className="text-[8px] sm:text-[9px] font-bold uppercase text-slate-400 block tracking-wider">
+                  Increment
+                </span>
+              </div>
+
+              <div className="rounded-xl bg-[#0b1021]/90 border border-emerald-500/30 px-2 sm:px-3.5 py-1 sm:py-1.5 text-center shadow-md">
+                <span className="text-xs sm:text-sm font-black font-mono text-emerald-400 block">
+                  ₹{room?.startingPurse?.toLocaleString("en-IN") || "5,000"}
+                </span>
+                <span className="text-[8px] sm:text-[9px] font-bold uppercase text-slate-400 block tracking-wider">
+                  Team Purse
+                </span>
+              </div>
             </div>
           </div>
         </div>

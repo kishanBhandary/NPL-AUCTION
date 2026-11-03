@@ -182,21 +182,54 @@ export default function JoinRoomPage({ params }: { params: Promise<{ code: strin
   }
 
   return (
-    <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col court-grid">
-      <Navbar roomCode={code} roomTitle={room?.title} roomStatus={room?.status} />
+    <div className="min-h-screen bg-[#060913] text-slate-100 flex flex-col relative overflow-x-hidden">
+      {/* 1. CINEMATIC VOLLEYBALL STADIUM ARENA BACKGROUND */}
+      <div className="fixed inset-0 z-0 pointer-events-none">
+        <Image
+          src="/images/npl-dashboard-bg.jpg"
+          alt="Volleyball Arena Stadium"
+          fill
+          priority
+          className="object-cover object-center opacity-25 brightness-80 contrast-125 scale-105"
+        />
+        <div className="absolute inset-0 bg-gradient-to-b from-[#060913]/95 via-[#070b18]/85 to-[#060913]/98" />
+        <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_center,_transparent_20%,_rgba(4,7,16,0.95)_85%)]" />
+      </div>
 
-      <div className="flex-1 max-w-2xl mx-auto w-full px-4 py-8">
-        <div className="rounded-2xl border border-slate-800 bg-slate-900/90 p-6 sm:p-8 shadow-2xl backdrop-blur-md">
-          {/* Header */}
-          <div className="border-b border-slate-800 pb-5 mb-6">
-            <span className="text-xs font-mono font-bold text-amber-400 tracking-wider uppercase">
-              ROOM: {code}
-            </span>
-            <h1 className="text-2xl font-black text-white mt-1">Register Your Franchise</h1>
-            <p className="text-xs text-slate-400 mt-1">
-              {room?.title} • Starting Purse: <strong className="text-emerald-400 font-mono">{formatCurrency(room?.startingPurse || 5000)}</strong>
-            </p>
+      <div className="relative z-10 flex flex-col min-h-screen">
+        <Navbar roomCode={code} roomTitle={room?.title} roomStatus={room?.status} />
+
+        <div className="flex-1 max-w-2xl mx-auto w-full px-4 py-8 space-y-6">
+          {/* Header Hero Banner */}
+          <div className="relative rounded-2xl border border-amber-500/30 bg-[#090e1e]/95 p-5 sm:p-6 shadow-2xl overflow-hidden backdrop-blur-xl flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 group">
+            <div className="absolute inset-0 pointer-events-none z-0">
+              <Image
+                src="/images/npl-hero-banner.jpg"
+                alt="Stadium Hero Banner"
+                fill
+                priority
+                className="object-cover object-right sm:object-center opacity-60 group-hover:scale-105 transition-transform duration-700"
+              />
+              <div className="absolute inset-0 bg-gradient-to-r from-[#070c1a] via-[#070c1a]/85 to-transparent sm:w-2/3" />
+              <div className="absolute inset-0 bg-gradient-to-t from-[#070c1a]/80 via-transparent to-transparent" />
+              <div className="absolute -top-12 -right-12 w-48 h-48 bg-amber-500/20 rounded-full blur-3xl pointer-events-none" />
+            </div>
+
+            <div className="relative z-10">
+              <div className="inline-flex items-center gap-1.5 rounded-full bg-amber-500/15 border border-amber-500/40 px-3 py-0.5 text-[10px] font-black uppercase tracking-wider text-amber-300 mb-2">
+                <Trophy className="h-3 w-3 text-amber-400" />
+                <span>Franchise Registration • Room {code}</span>
+              </div>
+              <h1 className="text-2xl sm:text-3xl font-black text-white drop-shadow">
+                Register Your Franchise
+              </h1>
+              <p className="text-xs sm:text-sm text-slate-300/90 mt-1 font-medium drop-shadow">
+                {room?.title} • Starting Purse: <strong className="text-emerald-400 font-mono">{formatCurrency(room?.startingPurse || 5000)}</strong>
+              </p>
+            </div>
           </div>
+
+          <div className="rounded-2xl border border-slate-800 bg-[#090e1e]/90 p-6 sm:p-8 shadow-2xl backdrop-blur-xl">
 
           {error && (
             <div className="mb-5 rounded-lg bg-rose-500/10 p-3 text-xs font-semibold text-rose-400 border border-rose-500/20">
@@ -425,6 +458,7 @@ export default function JoinRoomPage({ params }: { params: Promise<{ code: strin
             </div>
           </form>
         </div>
+      </div>
       </div>
     </div>
   );
