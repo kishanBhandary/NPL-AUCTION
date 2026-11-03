@@ -201,10 +201,10 @@ export default function WaitingRoomPage({ params }: { params: Promise<{ code: st
           alt="Volleyball Arena Stadium"
           fill
           priority
-          className="object-cover object-center opacity-25 brightness-80 contrast-125 scale-105"
+          className="object-cover object-center opacity-45 brightness-95 contrast-110 scale-100"
         />
-        <div className="absolute inset-0 bg-gradient-to-b from-[#060913]/95 via-[#070b18]/85 to-[#060913]/98" />
-        <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_center,_transparent_20%,_rgba(4,7,16,0.95)_85%)]" />
+        <div className="absolute inset-0 bg-gradient-to-b from-[#060913]/80 via-[#070b18]/60 to-[#060913]/90" />
+        <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_center,_transparent_30%,_rgba(4,7,16,0.85)_100%)]" />
       </div>
 
       <div className="relative z-10 flex flex-col min-h-screen">
