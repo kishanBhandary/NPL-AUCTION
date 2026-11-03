@@ -56,7 +56,20 @@ export default function WaitingRoomPage({ params }: { params: Promise<{ code: st
         .on("broadcast", { event: "TEAM_JOINED" }, () => {
           fetchRoom();
         })
-        .on("broadcast", { event: "TEAM_READY_TOGGLED" }, () => {
+        .on("broadcast", { event: "TEAM_READY_TOGGLED" }, (payload) => {
+          if (payload?.payload?.teamId && payload?.payload?.isReady !== undefined) {
+            setRoom((prev) => {
+              if (!prev) return prev;
+              return {
+                ...prev,
+                teams: prev.teams.map((t) =>
+                  t.id === payload.payload.teamId
+                    ? { ...t, isReady: payload.payload.isReady }
+                    : t
+                ),
+              };
+            });
+          }
           fetchRoom();
         })
         .on("broadcast", { event: "AUCTION_LAUNCHED" }, () => {
@@ -72,7 +85,7 @@ export default function WaitingRoomPage({ params }: { params: Promise<{ code: st
       };
     } else {
       // Fallback polling if Supabase keys are pending
-      const interval = setInterval(fetchRoom, 2500);
+      const interval = setInterval(fetchRoom, 2000);
       return () => clearInterval(interval);
     }
   }, [code, fetchRoom, router]);
@@ -106,6 +119,18 @@ export default function WaitingRoomPage({ params }: { params: Promise<{ code: st
 
   const handleToggleReady = async () => {
     try {
+      // Optimistic instant local update
+      if (currentTeam) {
+        setRoom((prev) => {
+          if (!prev) return prev;
+          return {
+            ...prev,
+            teams: prev.teams.map((t) =>
+              t.id === currentTeam.id ? { ...t, isReady: !t.isReady } : t
+            ),
+          };
+        });
+      }
       await fetch(`/api/rooms/${code}/ready`, { method: "POST" });
       fetchRoom();
     } catch {}
@@ -120,9 +145,9 @@ export default function WaitingRoomPage({ params }: { params: Promise<{ code: st
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-slate-950 flex flex-col items-center justify-center text-slate-400">
+      <div className="min-h-screen bg-[#070b16] flex flex-col items-center justify-center text-slate-400">
         <Loader2 className="h-8 w-8 animate-spin text-amber-500 mb-3" />
-        <p className="text-sm">Connecting to Waiting Room...</p>
+        <p className="text-sm font-bold text-slate-300">Connecting to Waiting Room...</p>
       </div>
     );
   }
@@ -133,13 +158,13 @@ export default function WaitingRoomPage({ params }: { params: Promise<{ code: st
 
       <div className="flex-1 max-w-7xl mx-auto w-full px-4 sm:px-6 lg:px-8 py-8 space-y-6">
         {/* Banner with Share Link and Controls */}
-        <div className="rounded-2xl border border-slate-800 bg-slate-900/80 p-6 shadow-xl backdrop-blur-md flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
+        <div className="rounded-2xl border border-slate-800 bg-[#090e1c]/90 p-6 shadow-xl backdrop-blur-md flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
           <div>
             <div className="flex items-center gap-2">
-              <span className="font-mono text-xs font-bold text-amber-400 tracking-wider">
+              <span className="font-mono text-xs font-black text-amber-400 tracking-wider">
                 ROOM CODE: {code}
               </span>
-              <span className="inline-flex items-center gap-1 rounded bg-amber-500/10 px-2 py-0.5 text-[10px] font-bold text-amber-400 border border-amber-500/20">
+              <span className="inline-flex items-center gap-1 rounded-lg bg-amber-500/15 px-2.5 py-0.5 text-[10px] font-black text-amber-400 border border-amber-500/30">
                 WAITING ROOM
               </span>
             </div>
@@ -147,14 +172,14 @@ export default function WaitingRoomPage({ params }: { params: Promise<{ code: st
               {room?.title}
             </h1>
             <p className="text-xs text-slate-400 mt-0.5">
-              Organized by {room?.owner.name} • Share link to register franchises
+              Organized by <strong className="text-slate-200">{room?.owner.name}</strong> • Share link to register franchises
             </p>
           </div>
 
           <div className="flex flex-wrap items-center gap-3">
             <button
               onClick={copyInviteLink}
-              className="flex items-center gap-2 rounded-xl bg-slate-800 px-4 py-2.5 text-xs font-bold text-slate-200 hover:bg-slate-700 border border-slate-700 transition-colors"
+              className="flex items-center gap-2 rounded-xl bg-slate-900 px-4 py-2.5 text-xs font-bold text-slate-200 hover:bg-slate-800 border border-slate-800 transition-colors"
             >
               {copied ? <Check className="h-4 w-4 text-emerald-400" /> : <Copy className="h-4 w-4 text-amber-400" />}
               <span>{copied ? "Link Copied!" : "Copy Invite Link"}</span>
@@ -162,7 +187,7 @@ export default function WaitingRoomPage({ params }: { params: Promise<{ code: st
 
             <Link
               href={`/room/${code}/players`}
-              className="flex items-center gap-2 rounded-xl bg-slate-800 px-4 py-2.5 text-xs font-bold text-slate-200 hover:bg-slate-700 border border-slate-700 transition-colors"
+              className="flex items-center gap-2 rounded-xl bg-slate-900 px-4 py-2.5 text-xs font-bold text-slate-200 hover:bg-slate-800 border border-slate-800 transition-colors"
             >
               <UserPlus className="h-4 w-4 text-cyan-400" />
               <span>Roster & Players ({room?.players.length || 0})</span>
@@ -171,7 +196,7 @@ export default function WaitingRoomPage({ params }: { params: Promise<{ code: st
             {!currentTeam && !isAuctioneer && (
               <Link
                 href={`/room/${code}/join`}
-                className="flex items-center gap-2 rounded-xl bg-amber-500 px-4 py-2.5 text-xs font-bold text-slate-950 hover:bg-amber-400 transition-colors"
+                className="flex items-center gap-2 rounded-xl bg-amber-500 px-4 py-2.5 text-xs font-black text-slate-950 hover:bg-amber-400 transition-colors shadow-md shadow-amber-500/20"
               >
                 <Users className="h-4 w-4" />
                 <span>Register Your Team</span>
@@ -181,7 +206,7 @@ export default function WaitingRoomPage({ params }: { params: Promise<{ code: st
         </div>
 
         {error && (
-          <div className="rounded-lg bg-rose-500/10 p-4 text-xs font-semibold text-rose-400 border border-rose-500/20">
+          <div className="rounded-xl bg-rose-500/10 p-4 text-xs font-semibold text-rose-400 border border-rose-500/20">
             {error}
           </div>
         )}
@@ -194,10 +219,12 @@ export default function WaitingRoomPage({ params }: { params: Promise<{ code: st
           onLaunchAuction={handleLaunchAuction}
           onToggleReady={handleToggleReady}
           isCurrentUserReady={currentTeam?.isReady}
+          isTeamOwner={Boolean(currentTeam)}
+          userTeamName={currentTeam?.name}
           launching={launching}
+          auctioneerName={room?.owner.name || "Auctioneer"}
         />
       </div>
     </div>
   );
 }
-

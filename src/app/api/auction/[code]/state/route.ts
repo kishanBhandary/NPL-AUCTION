@@ -146,6 +146,8 @@ export async function GET(
         totalPurse: t.totalPurse,
         remainingPurse: t.remainingPurse,
         mainPlayerName: t.mainPlayerName,
+        mainPlayerPosition: t.mainPlayerPosition,
+        mainPlayerPhotoUrl: t.mainPlayerPhotoUrl,
         squadCount: t.squad.length,
         squad: t.squad,
         owner: t.owner,
