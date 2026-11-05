@@ -151,9 +151,6 @@ export async function POST(
           currentHighestBidder: {
             select: { id: true, name: true, code: true, logoUrl: true, color: true, remainingPurse: true },
           },
-          currentAuctionPlayer: {
-            include: { player: true },
-          },
         },
       });
 
@@ -177,14 +174,14 @@ export async function POST(
       return { bid, updatedAuction, event, newTimerEndsAt };
     });
 
-    // Broadcast Realtime Update to all participants
-    await broadcastAuctionEvent(roomCode, "BID_PLACED", {
+    // Broadcast Realtime Update to all participants non-blockingly for <25ms response time
+    broadcastAuctionEvent(roomCode, "BID_PLACED", {
       bid: result.bid,
       currentBid: result.updatedAuction.currentBid,
       highestBidder: result.updatedAuction.currentHighestBidder,
       timerEndsAt: result.newTimerEndsAt.toISOString(),
       timestamp: new Date().toISOString(),
-    });
+    }).catch((err) => console.error("Realtime broadcast error:", err));
 
     return NextResponse.json({
       success: true,

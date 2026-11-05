@@ -65,7 +65,8 @@ interface TeamWithSquad {
       position: string;
     };
   }>;
-  owner?: { name: string } | null;
+  ownerId?: string;
+  owner?: { id?: string; name: string } | null;
 }
 
 interface AuctionEventItem {
@@ -176,6 +177,9 @@ export default function LiveAuctionPage({ params }: { params: Promise<{ code: st
   const [secondsRemaining, setSecondsRemaining] = useState<number>(30);
   const queueScrollRef = useRef<HTMLDivElement>(null);
   const lastKnownPlayerIdRef = useRef<string | null>(null);
+  // Ultra-fast single-press bidding lock refs (0ms delay, blocks accidental double clicks)
+  const isSubmittingBidRef = useRef(false);
+  const lastBidTimestampRef = useRef(0);
 
   // Fetch full live snapshot
   const fetchAuctionState = useCallback(async () => {
@@ -184,9 +188,38 @@ export default function LiveAuctionPage({ params }: { params: Promise<{ code: st
       const data = await res.json();
       if (data.room) {
         setRoom(data.room);
-        setAuction(data.auction);
+        setAuction((prev) => {
+          if (!data.auction) return null;
+          // Protect recent optimistic bid from being downgraded by stale snapshot
+          if (
+            prev &&
+            Date.now() - lastBidTimestampRef.current < 2000 &&
+            prev.currentBid > data.auction.currentBid &&
+            prev.currentAuctionPlayerId === data.auction.currentAuctionPlayerId
+          ) {
+            return {
+              ...data.auction,
+              currentBid: prev.currentBid,
+              currentHighestBidderId: prev.currentHighestBidderId,
+              currentHighestBidder: prev.currentHighestBidder,
+              timerEndsAt: prev.timerEndsAt,
+            };
+          }
+          return data.auction;
+        });
         lastKnownPlayerIdRef.current = data.auction?.currentAuctionPlayerId || null;
-        setCurrentLotBids(data.currentLotBids || []);
+        setCurrentLotBids((prev) => {
+          const serverBids: BidDetails[] = data.currentLotBids || [];
+          const optimisticBids = prev.filter((b) => b.id.startsWith("opt-"));
+          if (optimisticBids.length > 0 && Date.now() - lastBidTimestampRef.current < 2000) {
+            const hasConfirmed = serverBids.some((b) => b.amount >= optimisticBids[0].amount);
+            if (!hasConfirmed) {
+              const serverIds = new Set(serverBids.map((b) => b.id));
+              return [...optimisticBids, ...serverBids.filter((b) => !serverIds.has(b.id))];
+            }
+          }
+          return serverBids;
+        });
         setTeams(data.teams || []);
         setUpcomingPlayers(data.upcomingPlayers || []);
         setSoldPlayers(data.soldPlayers || []);
@@ -358,7 +391,7 @@ export default function LiveAuctionPage({ params }: { params: Promise<{ code: st
         .subscribe();
     }
 
-    // 3. ULTRA-FAST DELTA SYNC POLLER (400ms Heartbeat Fallback)
+    // 3. RELIABLE DELTA SYNC POLLER (2s Fallback Heartbeat)
     const deltaSyncInterval = setInterval(async () => {
       try {
         const res = await fetch(`/api/auction/${code}/sync`);
@@ -375,9 +408,17 @@ export default function LiveAuctionPage({ params }: { params: Promise<{ code: st
             return;
           }
 
-          // Ultra-fast local state sync
+          // Ultra-fast local state sync with optimistic protection
           setAuction((prev) => {
             if (!prev) return prev;
+            // Never let stale poller downgrade recent optimistic bid
+            if (
+              Date.now() - lastBidTimestampRef.current < 2000 &&
+              prev.currentBid > data.auction.currentBid &&
+              prev.currentAuctionPlayerId === data.auction.currentAuctionPlayerId
+            ) {
+              return prev;
+            }
             if (
               prev.currentBid === data.auction.currentBid &&
               prev.currentHighestBidderId === data.auction.currentHighestBidderId &&
@@ -407,7 +448,7 @@ export default function LiveAuctionPage({ params }: { params: Promise<{ code: st
           }
         }
       } catch {}
-    }, 400);
+    }, 2000);
 
     return () => {
       clearInterval(deltaSyncInterval);
@@ -453,9 +494,13 @@ export default function LiveAuctionPage({ params }: { params: Promise<{ code: st
   // Role checks
   const isAuctioneer = currentUser?.id === room?.ownerId;
   const userTeam =
-    teams.find((t) => t.owner?.name === currentUser?.name) ||
-    teams.find((t) => t.id === currentUser?.teamId) ||
-    null;
+    teams.find(
+      (t) =>
+        (t.owner?.id && currentUser?.id && t.owner.id === currentUser.id) ||
+        (t.ownerId && currentUser?.id && t.ownerId === currentUser.id) ||
+        (t.owner?.name && currentUser?.name && t.owner.name.toLowerCase() === currentUser.name.toLowerCase()) ||
+        (currentUser?.teamId && t.id === currentUser.teamId)
+    ) || null;
   const isTeamOwner = Boolean(userTeam);
 
   const isHighestBidder = Boolean(
@@ -467,6 +512,22 @@ export default function LiveAuctionPage({ params }: { params: Promise<{ code: st
   const isTimerActive = Boolean(
     auction?.timerEndsAt && new Date(auction.timerEndsAt).getTime() > Date.now()
   );
+
+  // Audio countdown warning in the final 5 seconds
+  const lastTickSecondRef = useRef<number>(-1);
+  useEffect(() => {
+    if (
+      isTimerActive &&
+      secondsRemaining <= 5 &&
+      secondsRemaining > 0 &&
+      secondsRemaining !== lastTickSecondRef.current
+    ) {
+      lastTickSecondRef.current = secondsRemaining;
+      if (soundEnabled) {
+        sounds.playWarning();
+      }
+    }
+  }, [secondsRemaining, isTimerActive, soundEnabled]);
 
   const currentBidAmount = auction?.currentBid || room?.minBasePrice || 50;
   const nextCalculatedBid =
@@ -572,18 +633,32 @@ export default function LiveAuctionPage({ params }: { params: Promise<{ code: st
     } catch {}
   };
 
-  // Team Owner Bidding with OPTIMISTIC 0MS INSTANT UI UPDATE
+  // Team Owner Bidding with OPTIMISTIC 0MS INSTANT UI UPDATE & SINGLE-PRESS LOCK
   const handlePlaceBid = async (customAmount?: number) => {
+    const now = Date.now();
+    // 1. Single-press guard: ignore if in-flight or pressed within 500ms
+    if (isSubmittingBidRef.current || now - lastBidTimestampRef.current < 500) {
+      return;
+    }
     if (!isTeamOwner || isAuctioneer || !userTeam) return;
+    if (!isPlayerOnBlock || !isTimerActive || isHighestBidder) return;
+
     const amountToBid = customAmount || nextCalculatedBid;
+    if (amountToBid > (userTeam.remainingPurse || 0)) return;
+
+    isSubmittingBidRef.current = true;
+    lastBidTimestampRef.current = now;
     setErrorMsg(null);
 
-    // 1. Snapshot previous state for rollback
+    // 2. Play audio instantly (0ms delay)
+    if (soundEnabled) sounds.playBid();
+
+    // 3. Snapshot previous state for rollback if server truly fails
     const prevAuction = auction ? { ...auction } : null;
     const prevBids = [...currentLotBids];
     const prevTeams = [...teams];
 
-    // 2. OPTIMISTIC INSTANT UPDATE (0ms delay)
+    // 4. OPTIMISTIC INSTANT UPDATE (0ms perceived delay)
     const newTimerEndsAt = new Date(Date.now() + (room?.timerDuration || 30) * 1000).toISOString();
     setAuction((prev) => {
       if (!prev) return prev;
@@ -620,10 +695,7 @@ export default function LiveAuctionPage({ params }: { params: Promise<{ code: st
         name: currentUser?.name || "You",
       },
     } as unknown as BidDetails;
-    setCurrentLotBids((prev) => [optimisticBid, ...prev]);
-
-    if (soundEnabled) sounds.playBid();
-    setBiddingLoading(true);
+    setCurrentLotBids((prev) => [optimisticBid, ...prev.filter((b) => !b.id.startsWith("opt-"))]);
 
     try {
       const res = await fetch(`/api/auction/${code}/bid`, {
@@ -634,7 +706,11 @@ export default function LiveAuctionPage({ params }: { params: Promise<{ code: st
 
       const data = await res.json();
       if (!res.ok) {
-        // Rollback optimistic state on server error
+        // If server says we already hold the highest bid, keep our status!
+        if (data.error && data.error.includes("already holding the highest bid")) {
+          return;
+        }
+        // Rollback optimistic state on actual server error
         setErrorMsg(data.error || "Failed to place bid");
         setAuction(prevAuction);
         setCurrentLotBids(prevBids);
@@ -661,7 +737,10 @@ export default function LiveAuctionPage({ params }: { params: Promise<{ code: st
       setCurrentLotBids(prevBids);
       setTeams(prevTeams);
     } finally {
-      setBiddingLoading(false);
+      // Cooldown to prevent multi-press jitter
+      setTimeout(() => {
+        isSubmittingBidRef.current = false;
+      }, 400);
     }
   };
 
@@ -1092,19 +1171,19 @@ export default function LiveAuctionPage({ params }: { params: Promise<{ code: st
         )}
 
         {/* SUBHEADER HERO BANNER: Stadium Atmosphere Banner */}
-        <div className="relative rounded-2xl border border-amber-500/30 bg-[#090e1e]/90 p-3.5 sm:p-5 shadow-2xl overflow-hidden backdrop-blur-xl group">
+        <div className="relative rounded-2xl border border-amber-500/40 bg-[#090e1e]/50 p-3.5 sm:p-5 shadow-2xl overflow-hidden backdrop-blur-xl group">
           {/* Panoramic Stadium Banner Background */}
           <div className="absolute inset-0 pointer-events-none z-0">
             <Image
-              src="/images/npl-hero-banner.jpg"
+              src="/images/npl-container-banner.jpg"
               alt="Stadium Hero Banner"
               fill
               priority
-              className="object-cover object-center opacity-55 group-hover:scale-105 transition-transform duration-700"
+              className="object-cover object-center opacity-80 group-hover:scale-105 transition-transform duration-700"
             />
-            <div className="absolute inset-0 bg-gradient-to-r from-[#070c1a]/95 via-[#070c1a]/75 to-[#070c1a]/95" />
-            <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_center,_transparent_30%,_rgba(7,12,26,0.9)_100%)]" />
-            <div className="absolute -top-12 -right-12 w-48 h-48 bg-amber-500/20 rounded-full blur-3xl pointer-events-none" />
+            <div className="absolute inset-0 bg-gradient-to-r from-[#070c1a]/85 via-[#070c1a]/55 to-[#070c1a]/85" />
+            <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_center,_transparent_35%,_rgba(7,12,26,0.75)_100%)]" />
+            <div className="absolute -top-12 -right-12 w-48 h-48 bg-amber-500/25 rounded-full blur-3xl pointer-events-none" />
           </div>
 
           <div className="relative z-10 flex flex-col md:flex-row items-center justify-between gap-3 sm:gap-4">
@@ -1365,22 +1444,29 @@ export default function LiveAuctionPage({ params }: { params: Promise<{ code: st
 
                   <button
                     type="button"
-                    onClick={() => handlePlaceBid()}
+                    onClick={(e) => {
+                      e.preventDefault();
+                      handlePlaceBid();
+                    }}
                     disabled={
-                      biddingLoading ||
                       !isPlayerOnBlock ||
                       !isTimerActive ||
                       isHighestBidder ||
                       nextCalculatedBid > (userTeam?.remainingPurse || 0)
                     }
-                    className="flex-1 min-h-[46px] flex items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-amber-500 via-orange-500 to-amber-500 py-2.5 sm:py-3 px-4 text-xs font-black text-slate-950 hover:brightness-110 shadow-lg shadow-amber-500/30 transition-all disabled:opacity-40 disabled:cursor-not-allowed"
+                    className={`flex-1 min-h-[46px] flex items-center justify-center gap-2 rounded-xl py-2.5 sm:py-3 px-4 text-xs font-black shadow-lg transition-all active:scale-[0.98] ${
+                      isHighestBidder
+                        ? "bg-gradient-to-r from-emerald-500 to-green-600 text-slate-950 shadow-emerald-500/30 cursor-default"
+                        : "bg-gradient-to-r from-amber-500 via-orange-500 to-amber-500 text-slate-950 hover:brightness-110 shadow-amber-500/30 disabled:opacity-40 disabled:cursor-not-allowed"
+                    }`}
                   >
-                    {biddingLoading ? (
-                      <Loader2 className="h-4 w-4 animate-spin text-slate-950" />
-                    ) : !isPlayerOnBlock ? (
+                    {!isPlayerOnBlock ? (
                       <span>AWAITING NEXT LOT...</span>
                     ) : isHighestBidder ? (
-                      <span>YOU HOLD TOP BID</span>
+                      <span className="flex items-center gap-1.5 font-black text-slate-950">
+                        <CheckCircle className="h-4 w-4 stroke-[2.5]" />
+                        <span>YOU HOLD TOP BID (₹{currentBidAmount.toLocaleString("en-IN")})</span>
+                      </span>
                     ) : !isTimerActive ? (
                       <span>TIMER PAUSED</span>
                     ) : (
@@ -1777,12 +1863,33 @@ export default function LiveAuctionPage({ params }: { params: Promise<{ code: st
 
             <button
               type="button"
-              onClick={() => handlePlaceBid()}
-              disabled={biddingLoading || nextCalculatedBid > (userTeam?.remainingPurse || 0)}
-              className="flex-1 min-h-[42px] flex items-center justify-center gap-1.5 rounded-xl bg-gradient-to-r from-amber-500 to-orange-500 py-2 px-3 text-xs font-black text-slate-950 shadow-lg shadow-amber-500/30"
+              onClick={(e) => {
+                e.preventDefault();
+                handlePlaceBid();
+              }}
+              disabled={
+                !isPlayerOnBlock ||
+                !isTimerActive ||
+                isHighestBidder ||
+                nextCalculatedBid > (userTeam?.remainingPurse || 0)
+              }
+              className={`flex-1 min-h-[42px] flex items-center justify-center gap-1.5 rounded-xl py-2 px-3 text-xs font-black transition-all ${
+                isHighestBidder
+                  ? "bg-emerald-500 text-slate-950 shadow-emerald-500/30 cursor-default"
+                  : "bg-gradient-to-r from-amber-500 to-orange-500 text-slate-950 shadow-lg shadow-amber-500/30 disabled:opacity-40"
+              }`}
             >
-              <Gavel className="h-3.5 w-3.5" />
-              <span>BID ₹{nextCalculatedBid.toLocaleString("en-IN")}</span>
+              {isHighestBidder ? (
+                <>
+                  <CheckCircle className="h-3.5 w-3.5 stroke-[2.5]" />
+                  <span>YOU HOLD TOP BID</span>
+                </>
+              ) : (
+                <>
+                  <Gavel className="h-3.5 w-3.5" />
+                  <span>BID ₹{nextCalculatedBid.toLocaleString("en-IN")}</span>
+                </>
+              )}
             </button>
           </div>
         )}

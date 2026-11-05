@@ -2,7 +2,7 @@
 
 import Image from "next/image";
 import { formatCurrency } from "@/lib/utils";
-import { CheckCircle2, Clock, Play, Users, Trophy, Star, XCircle, ShieldCheck } from "lucide-react";
+import { CheckCircle2, Clock, Play, Users, Trophy, Star, XCircle, ShieldCheck, Trash2, Loader2 } from "lucide-react";
 
 interface WaitingRoomRosterProps {
   teams: Array<{
@@ -22,6 +22,8 @@ interface WaitingRoomRosterProps {
   isAuctioneer: boolean;
   onLaunchAuction?: () => void;
   onToggleReady?: () => void;
+  onRemoveTeam?: (teamId: string, teamName: string) => void;
+  removingTeamId?: string | null;
   isCurrentUserReady?: boolean;
   isTeamOwner?: boolean;
   userTeamName?: string | null;
@@ -35,6 +37,8 @@ export default function WaitingRoomRoster({
   isAuctioneer,
   onLaunchAuction,
   onToggleReady,
+  onRemoveTeam,
+  removingTeamId = null,
   isCurrentUserReady = false,
   isTeamOwner = false,
   userTeamName = null,
@@ -238,6 +242,32 @@ export default function WaitingRoomRoster({
                       {formatCurrency(team.remainingPurse)}
                     </span>
                   </div>
+
+                  {/* Auctioneer Remove Team Button */}
+                  {isAuctioneer && onRemoveTeam && (
+                    <div className="border-t border-slate-800/80 pt-2 flex items-center justify-between">
+                      <span className="text-[10px] text-slate-500 font-medium">Franchise Control</span>
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          if (confirm(`Are you sure you want to remove franchise "${team.name}" from this auction room?`)) {
+                            onRemoveTeam(team.id, team.name);
+                          }
+                        }}
+                        disabled={removingTeamId === team.id}
+                        className="flex items-center gap-1.5 rounded-lg bg-rose-500/10 hover:bg-rose-500/25 border border-rose-500/30 px-2.5 py-1 text-[11px] font-bold text-rose-300 hover:text-white transition-all disabled:opacity-50"
+                        title={`Remove ${team.name}`}
+                      >
+                        {removingTeamId === team.id ? (
+                          <Loader2 className="h-3 w-3 animate-spin text-rose-400" />
+                        ) : (
+                          <Trash2 className="h-3 w-3 text-rose-400" />
+                        )}
+                        <span>{removingTeamId === team.id ? "Removing..." : "Remove Team"}</span>
+                      </button>
+                    </div>
+                  )}
                 </div>
               );
             })}

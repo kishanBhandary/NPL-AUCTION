@@ -174,25 +174,28 @@ export default function DashboardPage() {
 
       <main className="flex-1 max-w-[1700px] mx-auto w-full px-4 sm:px-6 lg:px-8 py-6 space-y-6">
         {/* Welcome Section with Panoramic Stadium Hero Graphic */}
-        <div className="rounded-2xl border border-amber-500/30 bg-[#090e1e]/95 p-6 sm:p-8 backdrop-blur-xl flex flex-col sm:flex-row items-start sm:items-center justify-between gap-6 shadow-2xl relative overflow-hidden group">
+        <div className="rounded-2xl border border-amber-500/40 bg-[#080d1e]/50 p-6 sm:p-8 backdrop-blur-xl flex flex-col sm:flex-row items-start sm:items-center justify-between gap-6 shadow-2xl relative overflow-hidden group">
           {/* Panoramic Stadium Banner Background */}
           <div className="absolute inset-0 pointer-events-none z-0">
             <Image
-              src="/images/npl-hero-banner.jpg"
+              src="/images/npl-container-banner.jpg"
               alt="Stadium Hero Banner"
               fill
               priority
-              className="object-cover object-right sm:object-center opacity-65 group-hover:scale-105 transition-transform duration-700"
+              className="object-cover object-center opacity-85 group-hover:scale-105 transition-transform duration-700"
             />
-            {/* Dark gradient mask on left so text stays 100% crystal clear */}
-            <div className="absolute inset-0 bg-gradient-to-r from-[#070c1a] via-[#070c1a]/85 to-transparent sm:w-2/3" />
-            <div className="absolute inset-0 bg-gradient-to-t from-[#070c1a]/80 via-transparent to-transparent" />
+            {/* Dark gradient mask on left so text stays 100% crystal clear while stadium & court remain distinctly visible */}
+            <div className="absolute inset-0 bg-gradient-to-r from-[#060913]/90 via-[#060913]/60 to-transparent sm:w-3/5" />
+            <div className="absolute inset-0 bg-gradient-to-t from-[#060913]/50 via-transparent to-transparent" />
             {/* Subtle amber rim glow */}
             <div className="absolute -top-12 -right-12 w-48 h-48 bg-amber-500/20 rounded-full blur-3xl pointer-events-none" />
           </div>
 
           <div className="relative z-10 max-w-2xl">
-
+            <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-amber-500/15 border border-amber-500/35 text-amber-400 text-[10px] sm:text-xs font-black uppercase tracking-wider mb-2 shadow-sm backdrop-blur-md">
+              <span className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse" />
+              <span>NPL Volleyball Live Auction Portal</span>
+            </div>
             <h1 className="text-2xl sm:text-3xl lg:text-4xl font-black text-white tracking-tight drop-shadow-md">
               Welcome back, <span className="bg-gradient-to-r from-amber-400 via-orange-400 to-amber-300 bg-clip-text text-transparent">{currentUser?.name || "Auctioneer"}</span>
             </h1>

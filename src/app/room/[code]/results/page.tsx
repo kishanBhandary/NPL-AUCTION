@@ -122,18 +122,18 @@ export default function AuctionResultsPage({ params }: { params: Promise<{ code:
 
       <div className="flex-1 max-w-7xl mx-auto w-full px-4 sm:px-6 lg:px-8 py-8 space-y-8">
         {/* Header Hero Banner */}
-        <div className="relative rounded-2xl border border-amber-500/30 bg-[#090e1e]/95 p-5 sm:p-6 shadow-2xl overflow-hidden backdrop-blur-xl flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 group">
+        <div className="relative rounded-2xl border border-amber-500/40 bg-[#080d1e]/50 p-5 sm:p-6 shadow-2xl overflow-hidden backdrop-blur-xl flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 group">
           <div className="absolute inset-0 pointer-events-none z-0">
             <Image
-              src="/images/npl-hero-banner.jpg"
+              src="/images/npl-container-banner.jpg"
               alt="Stadium Hero Banner"
               fill
               priority
-              className="object-cover object-right sm:object-center opacity-60 group-hover:scale-105 transition-transform duration-700"
+              className="object-cover object-center opacity-85 group-hover:scale-105 transition-transform duration-700"
             />
-            <div className="absolute inset-0 bg-gradient-to-r from-[#070c1a] via-[#070c1a]/85 to-transparent sm:w-2/3" />
-            <div className="absolute inset-0 bg-gradient-to-t from-[#070c1a]/80 via-transparent to-transparent" />
-            <div className="absolute -top-12 -right-12 w-48 h-48 bg-amber-500/20 rounded-full blur-3xl pointer-events-none" />
+            <div className="absolute inset-0 bg-gradient-to-r from-[#060913]/90 via-[#060913]/60 to-transparent sm:w-3/5" />
+            <div className="absolute inset-0 bg-gradient-to-t from-[#060913]/50 via-transparent to-transparent" />
+            <div className="absolute -top-12 -right-12 w-48 h-48 bg-amber-500/25 rounded-full blur-3xl pointer-events-none" />
           </div>
 
           <div className="relative z-10">

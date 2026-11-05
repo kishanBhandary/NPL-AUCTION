@@ -4,20 +4,9 @@ import { use, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Image from "next/image";
 import Navbar from "@/components/Navbar";
-import { Trophy, Upload, Shield, ArrowRight, Loader2, Check, Star, Lock, User } from "lucide-react";
+import { Trophy, Upload, Shield, ArrowRight, Loader2, Star, Lock, User } from "lucide-react";
 import { formatCurrency } from "@/lib/utils";
 import { PlayerPosition } from "@/types";
-
-const PRESET_COLORS = [
-  "#3B82F6", // Blue
-  "#EF4444", // Red
-  "#10B981", // Emerald
-  "#F59E0B", // Amber
-  "#8B5CF6", // Purple
-  "#EC4899", // Pink
-  "#06B6D4", // Cyan
-  "#F97316", // Orange
-];
 
 export default function JoinRoomPage({ params }: { params: Promise<{ code: string }> }) {
   const { code } = use(params);
@@ -37,11 +26,9 @@ export default function JoinRoomPage({ params }: { params: Promise<{ code: strin
 
   // Franchise info
   const [teamName, setTeamName] = useState("");
-  const [teamCode, setTeamCode] = useState("");
   const [ownerName, setOwnerName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
-  const [color, setColor] = useState("#3B82F6");
   const [logoUrl, setLogoUrl] = useState("");
   const [uploadingLogo, setUploadingLogo] = useState(false);
 
@@ -145,16 +132,15 @@ export default function JoinRoomPage({ params }: { params: Promise<{ code: strin
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          teamName,
-          teamCode,
-          ownerName,
-          email,
+          teamName: teamName.trim(),
+          teamCode: teamName.trim().slice(0, 3).toUpperCase(),
+          ownerName: ownerName.trim(),
+          email: email.trim(),
           password,
-          color,
-          logoUrl: logoUrl || `https://api.dicebear.com/7.x/identicon/svg?seed=${encodeURIComponent(teamName)}`,
+          logoUrl: logoUrl || `https://api.dicebear.com/7.x/identicon/svg?seed=${encodeURIComponent(teamName.trim())}`,
           mainPlayerName: mainPlayerName.trim(),
           mainPlayerPosition: mainPlayerPos,
-          mainPlayerPhotoUrl: mainPlayerPhotoUrl || `https://api.dicebear.com/7.x/bottts/svg?seed=${encodeURIComponent(mainPlayerName)}`,
+          mainPlayerPhotoUrl: mainPlayerPhotoUrl || `https://api.dicebear.com/7.x/bottts/svg?seed=${encodeURIComponent(mainPlayerName.trim())}`,
         }),
       });
 
@@ -239,34 +225,18 @@ export default function JoinRoomPage({ params }: { params: Promise<{ code: strin
 
           <form onSubmit={handleSubmit} className="space-y-5">
             {/* Franchise Info */}
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-              <div className="sm:col-span-2">
-                <label className="block text-xs font-bold uppercase tracking-wider text-slate-300 mb-1">
-                  Franchise / Team Name
-                </label>
-                <input
-                  type="text"
-                  required
-                  placeholder="e.g. Malabar Strikers"
-                  value={teamName}
-                  onChange={(e) => setTeamName(e.target.value)}
-                  className="w-full rounded-xl border border-slate-800 bg-slate-950 py-2 px-3 text-xs text-white placeholder-slate-600 focus:border-amber-500 focus:outline-none"
-                />
-              </div>
-
-              <div>
-                <label className="block text-xs font-bold uppercase tracking-wider text-slate-300 mb-1">
-                  Short Code
-                </label>
-                <input
-                  type="text"
-                  maxLength={4}
-                  placeholder="e.g. MBS"
-                  value={teamCode}
-                  onChange={(e) => setTeamCode(e.target.value.toUpperCase())}
-                  className="w-full rounded-xl border border-slate-800 bg-slate-950 py-2 px-3 text-xs font-mono font-bold text-white uppercase focus:border-amber-500 focus:outline-none"
-                />
-              </div>
+            <div>
+              <label className="block text-xs font-bold uppercase tracking-wider text-slate-300 mb-1">
+                Franchise / Team Name
+              </label>
+              <input
+                type="text"
+                required
+                placeholder="e.g. Malabar Strikers"
+                value={teamName}
+                onChange={(e) => setTeamName(e.target.value)}
+                className="w-full rounded-xl border border-slate-800 bg-slate-950 py-2.5 px-3.5 text-xs text-white placeholder-slate-600 focus:border-amber-500 focus:outline-none"
+              />
             </div>
 
             {/* Owner Credentials */}
@@ -316,51 +286,30 @@ export default function JoinRoomPage({ params }: { params: Promise<{ code: strin
               </div>
             </div>
 
-            {/* Team Color & Logo */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-2 border-t border-slate-800/80">
-              <div>
-                <label className="block text-xs font-bold uppercase tracking-wider text-slate-300 mb-1.5">
-                  Franchise Color
-                </label>
-                <div className="flex items-center gap-2 flex-wrap">
-                  {PRESET_COLORS.map((c) => (
-                    <button
-                      key={c}
-                      type="button"
-                      onClick={() => setColor(c)}
-                      className="h-7 w-7 rounded-full flex items-center justify-center transition-transform hover:scale-110 shadow-sm"
-                      style={{ backgroundColor: c }}
-                    >
-                      {color === c && <Check className="h-3.5 w-3.5 text-white stroke-[3]" />}
-                    </button>
-                  ))}
+            {/* Franchise Logo (Optional) */}
+            <div className="pt-2 border-t border-slate-800/80">
+              <label className="block text-xs font-bold uppercase tracking-wider text-slate-300 mb-1.5">
+                Franchise Logo (Optional)
+              </label>
+              <div className="flex items-center gap-3">
+                <div className="relative h-11 w-11 rounded-lg border border-slate-700 bg-slate-800 overflow-hidden flex items-center justify-center shrink-0">
+                  {logoUrl ? (
+                    <Image src={logoUrl} alt="Logo" fill className="object-cover" unoptimized />
+                  ) : (
+                    <Shield className="h-5 w-5 text-slate-500" />
+                  )}
                 </div>
-              </div>
-
-              <div>
-                <label className="block text-xs font-bold uppercase tracking-wider text-slate-300 mb-1.5">
-                  Franchise Logo (Cloudinary)
+                <label className="inline-flex items-center gap-1.5 rounded-lg bg-slate-800 px-3 py-1.5 text-xs font-semibold text-slate-300 hover:bg-slate-700 cursor-pointer border border-slate-700">
+                  <Upload className="h-3 w-3 text-amber-400" />
+                  <span>{uploadingLogo ? "Uploading..." : "Upload Logo (Cloudinary)"}</span>
+                  <input
+                    type="file"
+                    accept="image/*"
+                    onChange={handleLogoUpload}
+                    className="hidden"
+                    disabled={uploadingLogo}
+                  />
                 </label>
-                <div className="flex items-center gap-3">
-                  <div className="relative h-11 w-11 rounded-lg border border-slate-700 bg-slate-800 overflow-hidden flex items-center justify-center shrink-0">
-                    {logoUrl ? (
-                      <Image src={logoUrl} alt="Logo" fill className="object-cover" unoptimized />
-                    ) : (
-                      <Shield className="h-5 w-5 text-slate-500" />
-                    )}
-                  </div>
-                  <label className="inline-flex items-center gap-1.5 rounded-lg bg-slate-800 px-3 py-1.5 text-xs font-semibold text-slate-300 hover:bg-slate-700 cursor-pointer border border-slate-700">
-                    <Upload className="h-3 w-3 text-amber-400" />
-                    <span>{uploadingLogo ? "Uploading..." : "Upload Logo"}</span>
-                    <input
-                      type="file"
-                      accept="image/*"
-                      onChange={handleLogoUpload}
-                      className="hidden"
-                      disabled={uploadingLogo}
-                    />
-                  </label>
-                </div>
               </div>
             </div>
 

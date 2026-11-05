@@ -150,6 +150,7 @@ export async function GET(
         mainPlayerPhotoUrl: t.mainPlayerPhotoUrl,
         squadCount: t.squad.length,
         squad: t.squad,
+        ownerId: t.ownerId,
         owner: t.owner,
       })),
       recentEvents: room.events,

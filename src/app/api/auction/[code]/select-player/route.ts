@@ -19,6 +19,15 @@ export async function POST(
     const room = await prisma.auctionRoom.findUnique({
       where: { roomCode },
       include: {
+        players: {
+          select: {
+            id: true,
+            roomId: true,
+            name: true,
+            photoUrl: true,
+            position: true,
+          },
+        },
         auctions: { where: { status: "ACTIVE" }, take: 1 },
       },
     });
@@ -29,9 +38,43 @@ export async function POST(
 
     await requireAuctioneer(room.id, user.id);
 
-    const auction = room.auctions[0];
+    let auction = room.auctions[0];
     if (!auction) {
-      return NextResponse.json({ error: "No active auction found in this room" }, { status: 400 });
+      // Auto-initialize active auction if starting directly from live room
+      auction = await prisma.auction.create({
+        data: {
+          roomId: room.id,
+          status: "ACTIVE",
+          startedAt: new Date(),
+          currentBid: room.minBasePrice || 50,
+        },
+      });
+
+      await prisma.auctionRoom.update({
+        where: { id: room.id },
+        data: { status: "LIVE" },
+      });
+
+      // Populate AuctionPlayer roster for all room players
+      const existingRoster = await prisma.auctionPlayer.findMany({
+        where: { auctionId: auction.id },
+        select: { playerId: true },
+      });
+      const existingPlayerIds = new Set(existingRoster.map((r) => r.playerId));
+      const missingPlayers = room.players.filter((p) => !existingPlayerIds.has(p.id));
+
+      if (missingPlayers.length > 0) {
+        let lotCounter = 1;
+        await prisma.auctionPlayer.createMany({
+          data: missingPlayers.map((player) => ({
+            auctionId: auction.id,
+            playerId: player.id,
+            status: "UPCOMING",
+            basePrice: room.minBasePrice || 50,
+            lotNumber: lotCounter++,
+          })),
+        });
+      }
     }
 
     // Check if there is already an active lot in bidding
@@ -65,13 +108,48 @@ export async function POST(
       },
     });
 
-    if (upcomingPlayers.length === 0) {
-      return NextResponse.json({ error: "No remaining upcoming players in the auction pool!" }, { status: 400 });
+    let poolToChooseFrom = upcomingPlayers;
+
+    if (poolToChooseFrom.length === 0) {
+      // Check if there are unsold players that can be brought back for round 2
+      const unsoldPlayers = await prisma.auctionPlayer.findMany({
+        where: {
+          auctionId: auction.id,
+          status: "UNSOLD",
+        },
+        include: {
+          player: {
+            select: {
+              id: true,
+              roomId: true,
+              name: true,
+              photoUrl: true,
+              position: true,
+            },
+          },
+        },
+      });
+
+      if (unsoldPlayers.length > 0) {
+        // Recycle unsold players back into upcoming pool
+        await prisma.auctionPlayer.updateMany({
+          where: {
+            auctionId: auction.id,
+            status: "UNSOLD",
+          },
+          data: {
+            status: "UPCOMING",
+          },
+        });
+        poolToChooseFrom = unsoldPlayers;
+      } else {
+        return NextResponse.json({ error: "All players have been auctioned! The auction pool is complete." }, { status: 400 });
+      }
     }
 
     // Pick random eligible player
-    const randomIndex = Math.floor(Math.random() * upcomingPlayers.length);
-    const selectedAuctionPlayer = upcomingPlayers[randomIndex];
+    const randomIndex = Math.floor(Math.random() * poolToChooseFrom.length);
+    const selectedAuctionPlayer = poolToChooseFrom[randomIndex];
 
     // Update lot and auction in transaction
     const [updatedLot, updatedAuction] = await prisma.$transaction([
