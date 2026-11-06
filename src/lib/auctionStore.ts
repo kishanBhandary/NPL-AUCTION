@@ -84,7 +84,7 @@ export function setAuctionMemoryState(
   state: Partial<ActiveAuctionMemoryState>
 ): ActiveAuctionMemoryState {
   const key = roomCode.toUpperCase().trim();
-  const existing = memoryStore.get(key) || {
+  const existing: ActiveAuctionMemoryState = memoryStore.get(key) || {
     roomCode: key,
     status: "LIVE",
     currentAuctionPlayerId: null,
@@ -95,12 +95,17 @@ export function setAuctionMemoryState(
     timerEndsAt: null,
     timerSeconds: 30,
     latestBids: [],
+    lastSoldCelebration: null,
     lastUpdated: Date.now(),
   };
 
   const updated: ActiveAuctionMemoryState = {
     ...existing,
     ...state,
+    lastSoldCelebration:
+      state.lastSoldCelebration !== undefined
+        ? state.lastSoldCelebration
+        : existing.lastSoldCelebration,
     lastUpdated: Date.now(),
   };
 
@@ -174,5 +179,33 @@ export function soldPlayerInMemory(
     latestBids: [],
     lastSoldCelebration: celebration,
   });
+}
+
+export function resetAuctionEntirelyInMemory(
+  roomCode: string,
+  targetStatus: string = "LIVE"
+): ActiveAuctionMemoryState {
+  const key = roomCode.toUpperCase().trim();
+  const resetState: ActiveAuctionMemoryState = {
+    roomCode: key,
+    status: targetStatus,
+    currentAuctionPlayerId: null,
+    currentAuctionPlayer: null,
+    currentBid: 50,
+    currentHighestBidderId: null,
+    currentHighestBidder: null,
+    timerEndsAt: null,
+    timerSeconds: 30,
+    latestBids: [],
+    lastSoldCelebration: null,
+    lastUpdated: Date.now(),
+  };
+  memoryStore.set(key, resetState);
+  return resetState;
+}
+
+export function clearAuctionMemoryState(roomCode: string) {
+  const key = roomCode.toUpperCase().trim();
+  memoryStore.delete(key);
 }
 

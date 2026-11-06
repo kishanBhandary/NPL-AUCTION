@@ -3,6 +3,7 @@
 import { use, useEffect, useState, useCallback, useRef } from "react";
 import Image from "next/image";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import Navbar from "@/components/Navbar";
 import { fireConfetti } from "@/components/ConfettiBlast";
 import { sounds } from "@/components/SoundEffects";
@@ -38,6 +39,10 @@ import {
   Check,
   Star,
   ExternalLink,
+  Power,
+  AlertTriangle,
+  X,
+  RefreshCw,
 } from "lucide-react";
 
 interface TeamWithSquad {
@@ -123,11 +128,15 @@ const TEAM_THEMES = [
 
 export default function LiveAuctionPage({ params }: { params: Promise<{ code: string }> }) {
   const { code } = use(params);
+  const router = useRouter();
 
   const [loading, setLoading] = useState(true);
   const [currentUser, setCurrentUser] = useState<SessionUser | null>(null);
   const [soundEnabled, setSoundEnabled] = useState(true);
   const [actionLoading, setActionLoading] = useState(false);
+  const [actionLoadingText, setActionLoadingText] = useState<string | null>(null);
+  const [showCloseModal, setShowCloseModal] = useState(false);
+  const [showResetModal, setShowResetModal] = useState(false);
   const [biddingLoading, setBiddingLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [selectedBidIncrement, setSelectedBidIncrement] = useState<number>(50);
@@ -188,6 +197,14 @@ export default function LiveAuctionPage({ params }: { params: Promise<{ code: st
       const res = await fetch(`/api/auction/${code}/state`);
       const data = await res.json();
       if (data.room) {
+        if (data.room.status === "COMPLETED") {
+          router.push(`/room/${code}/results`);
+          return;
+        }
+        if (data.room.status === "WAITING") {
+          router.push(`/room/${code}/waiting`);
+          return;
+        }
         setRoom(data.room);
         setAuction((prev) => {
           if (!data.auction) return null;
@@ -232,7 +249,7 @@ export default function LiveAuctionPage({ params }: { params: Promise<{ code: st
     } finally {
       setLoading(false);
     }
-  }, [code]);
+  }, [code, router]);
 
   // Handle trigger sold celebration across all participant and team owner screens
   const lastCelebratedTimestampRef = useRef<number>(0);
@@ -411,6 +428,30 @@ export default function LiveAuctionPage({ params }: { params: Promise<{ code: st
           }
         } catch {}
       });
+
+      eventSource.addEventListener("AUCTION_RESET", (e: MessageEvent) => {
+        try {
+          const p = JSON.parse(e.data);
+          if (p?.status === "WAITING") {
+            router.push(`/room/${code}/waiting`);
+          } else {
+            setSoldCelebration(null);
+            setCurrentLotBids([]);
+            fetchAuctionState();
+          }
+        } catch {}
+      });
+
+      eventSource.addEventListener("ROOM_STATUS_CHANGED", (e: MessageEvent) => {
+        try {
+          const p = JSON.parse(e.data);
+          if (p?.status === "COMPLETED") {
+            router.push(p?.redirectUrl || `/room/${code}/results`);
+          } else if (p?.status === "WAITING") {
+            router.push(p?.redirectUrl || `/room/${code}/waiting`);
+          }
+        } catch {}
+      });
     } catch {
       // SSE not supported or blocked
     }
@@ -536,6 +577,24 @@ export default function LiveAuctionPage({ params }: { params: Promise<{ code: st
             setAuction((prev) => (prev ? { ...prev, timerEndsAt: p.timerEndsAt } : prev));
           }
         })
+        .on("broadcast", { event: "AUCTION_RESET" }, (payload) => {
+          const p = payload?.payload;
+          if (p?.status === "WAITING") {
+            router.push(`/room/${code}/waiting`);
+          } else {
+            setSoldCelebration(null);
+            setCurrentLotBids([]);
+            fetchAuctionState();
+          }
+        })
+        .on("broadcast", { event: "ROOM_STATUS_CHANGED" }, (payload) => {
+          const p = payload?.payload;
+          if (p?.status === "COMPLETED") {
+            router.push(p?.redirectUrl || `/room/${code}/results`);
+          } else if (p?.status === "WAITING") {
+            router.push(p?.redirectUrl || `/room/${code}/waiting`);
+          }
+        })
         .subscribe();
     }
 
@@ -545,6 +604,14 @@ export default function LiveAuctionPage({ params }: { params: Promise<{ code: st
         const res = await fetch(`/api/auction/${code}/sync`);
         if (!res.ok) return;
         const data = await res.json();
+
+        if (data.roomStatus === "COMPLETED") {
+          router.push(`/room/${code}/results`);
+          return;
+        } else if (data.roomStatus === "WAITING") {
+          router.push(`/room/${code}/waiting`);
+          return;
+        }
 
         if (data.auction) {
           // If player lot changed, trigger full state refresh
@@ -839,6 +906,76 @@ export default function LiveAuctionPage({ params }: { params: Promise<{ code: st
         setAuction((prev) => (prev ? { ...prev, timerEndsAt: data.timerEndsAt } : prev));
       }
     } catch {}
+  };
+
+  const handleCloseArena = async (mode: "close_completed" | "close_waiting") => {
+    if (!isAuctioneer) return;
+    setActionLoading(true);
+    setActionLoadingText(
+      mode === "close_completed"
+        ? "Closing Arena & Finalizing Results..."
+        : "Closing Arena & Returning to Waiting Room..."
+    );
+    setErrorMsg(null);
+    try {
+      if (mode === "close_completed") {
+        const res = await fetch(`/api/auction/${code}/reset`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ mode: "close_completed" }),
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || "Failed to close arena");
+        router.push(data.redirectUrl || `/room/${code}/results`);
+      } else {
+        const res = await fetch(`/api/rooms/${code}/status`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ status: "WAITING" }),
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || "Failed to close arena");
+        router.push(`/room/${code}/waiting`);
+      }
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : "Failed to close live arena";
+      setErrorMsg(message);
+    } finally {
+      setActionLoading(false);
+      setActionLoadingText(null);
+      setShowCloseModal(false);
+    }
+  };
+
+  const handleResetAuction = async (mode: "reset_live" | "reset_waiting") => {
+    if (!isAuctioneer) return;
+    setActionLoading(true);
+    setActionLoadingText("Resetting auction lots, team purses, and bids...");
+    setErrorMsg(null);
+    try {
+      const res = await fetch(`/api/auction/${code}/reset`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ mode }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Failed to reset auction");
+
+      if (mode === "reset_waiting") {
+        router.push(`/room/${code}/waiting`);
+      } else {
+        setSoldCelebration(null);
+        setCurrentLotBids([]);
+        await fetchAuctionState();
+      }
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : "Failed to reset auction";
+      setErrorMsg(message);
+    } finally {
+      setActionLoading(false);
+      setActionLoadingText(null);
+      setShowResetModal(false);
+    }
   };
 
   // Team Owner Bidding with OPTIMISTIC 0MS INSTANT UI UPDATE & SINGLE-PRESS LOCK
@@ -1370,6 +1507,189 @@ export default function LiveAuctionPage({ params }: { params: Promise<{ code: st
         </div>
       )}
 
+      {/* CLOSE LIVE ARENA MODAL */}
+      {showCloseModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-md p-4 animate-in fade-in duration-200">
+          <div className="relative w-full max-w-md rounded-3xl border-2 border-rose-500/60 bg-gradient-to-b from-[#180a0e] via-[#0d1222] to-[#060913] p-6 text-slate-100 shadow-2xl shadow-rose-950/50">
+            <button
+              onClick={() => !actionLoading && setShowCloseModal(false)}
+              disabled={actionLoading}
+              className="absolute top-4 right-4 rounded-full bg-slate-900/80 p-1.5 text-slate-400 hover:text-white border border-slate-800 transition-colors"
+            >
+              <X className="h-4 w-4" />
+            </button>
+
+            <div className="flex items-center gap-3 mb-4">
+              <div className="h-11 w-11 rounded-2xl bg-rose-500/20 border border-rose-500/40 flex items-center justify-center text-rose-400 shrink-0">
+                <Power className="h-6 w-6" />
+              </div>
+              <div>
+                <h3 className="text-lg font-black text-white">Close Live Arena</h3>
+                <p className="text-xs text-slate-400">Choose how to close this auction session</p>
+              </div>
+            </div>
+
+            <div className="space-y-3 my-5">
+              <button
+                type="button"
+                disabled={actionLoading}
+                onClick={() => handleCloseArena("close_completed")}
+                className="w-full text-left rounded-2xl border border-emerald-500/40 bg-emerald-950/20 hover:bg-emerald-950/40 p-4 transition-all group disabled:opacity-50"
+              >
+                <div className="flex items-center justify-between mb-1">
+                  <span className="text-sm font-black text-emerald-300 group-hover:text-emerald-200 flex items-center gap-2">
+                    <CheckCircle className="h-4 w-4 text-emerald-400" />
+                    Conclude Auction & View Results
+                  </span>
+                  <span className="text-[10px] font-bold uppercase tracking-wider text-emerald-400 bg-emerald-500/20 px-2 py-0.5 rounded-full">
+                    Finalize
+                  </span>
+                </div>
+                <p className="text-xs text-slate-400">
+                  Marks the auction as completed, locks final rosters, and redirects everyone to the official results page.
+                </p>
+              </button>
+
+              <button
+                type="button"
+                disabled={actionLoading}
+                onClick={() => handleCloseArena("close_waiting")}
+                className="w-full text-left rounded-2xl border border-amber-500/40 bg-amber-950/20 hover:bg-amber-950/40 p-4 transition-all group disabled:opacity-50"
+              >
+                <div className="flex items-center justify-between mb-1">
+                  <span className="text-sm font-black text-amber-300 group-hover:text-amber-200 flex items-center gap-2">
+                    <Users className="h-4 w-4 text-amber-400" />
+                    Pause & Return to Waiting Room
+                  </span>
+                  <span className="text-[10px] font-bold uppercase tracking-wider text-amber-400 bg-amber-500/20 px-2 py-0.5 rounded-full">
+                    Standby
+                  </span>
+                </div>
+                <p className="text-xs text-slate-400">
+                  Suspends the live arena and returns all teams and viewers back to the Waiting Room without deleting squads.
+                </p>
+              </button>
+            </div>
+
+            {actionLoadingText && (
+              <div className="flex items-center justify-center gap-2 text-xs text-rose-300 font-bold mb-3 animate-pulse">
+                <Loader2 className="h-4 w-4 animate-spin text-rose-400" />
+                <span>{actionLoadingText}</span>
+              </div>
+            )}
+
+            <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-800">
+              <button
+                type="button"
+                disabled={actionLoading}
+                onClick={() => setShowCloseModal(false)}
+                className="px-4 py-2 rounded-xl text-xs font-bold text-slate-400 hover:text-white bg-slate-900 border border-slate-800 transition-colors"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* RESET AUCTION MODAL */}
+      {showResetModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/85 backdrop-blur-md p-4 animate-in fade-in duration-200">
+          <div className="relative w-full max-w-lg rounded-3xl border-2 border-amber-500/60 bg-gradient-to-b from-[#1c1305] via-[#0d1222] to-[#060913] p-6 text-slate-100 shadow-2xl shadow-amber-950/50">
+            <button
+              onClick={() => !actionLoading && setShowResetModal(false)}
+              disabled={actionLoading}
+              className="absolute top-4 right-4 rounded-full bg-slate-900/80 p-1.5 text-slate-400 hover:text-white border border-slate-800 transition-colors"
+            >
+              <X className="h-4 w-4" />
+            </button>
+
+            <div className="flex items-center gap-3 mb-3">
+              <div className="h-11 w-11 rounded-2xl bg-amber-500/20 border border-amber-500/40 flex items-center justify-center text-amber-400 shrink-0">
+                <RotateCcw className="h-6 w-6" />
+              </div>
+              <div>
+                <h3 className="text-lg font-black text-white">Reset Entire Auction Once Again</h3>
+                <p className="text-xs text-amber-300 font-medium">Start fresh with restored purses & full queue</p>
+              </div>
+            </div>
+
+            <div className="rounded-2xl bg-amber-500/10 border border-amber-500/30 p-3.5 text-xs text-amber-200/90 leading-relaxed mb-4">
+              <p className="font-bold mb-1 flex items-center gap-1 text-amber-300">
+                <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
+                What happens during reset:
+              </p>
+              <ul className="list-disc list-inside space-y-0.5 text-[11px] text-slate-300">
+                <li>All team budgets are restored back to ₹{room?.startingPurse?.toLocaleString("en-IN") || "5,000"}.</li>
+                <li>All sold & unsold players return to the upcoming pool.</li>
+                <li>All previous bids and sold history are wiped clean.</li>
+                <li>The auction can be started completely anew!</li>
+              </ul>
+            </div>
+
+            <div className="space-y-3 mb-5">
+              <button
+                type="button"
+                disabled={actionLoading}
+                onClick={() => handleResetAuction("reset_live")}
+                className="w-full text-left rounded-2xl border-2 border-amber-500/60 bg-gradient-to-r from-amber-500/20 to-orange-500/20 hover:from-amber-500/30 hover:to-orange-500/30 p-4 transition-all group disabled:opacity-50"
+              >
+                <div className="flex items-center justify-between mb-1">
+                  <span className="text-sm font-black text-white group-hover:text-amber-300 flex items-center gap-2">
+                    <Play className="h-4 w-4 text-amber-400 fill-amber-400" />
+                    Reset & Restart Live Arena Now
+                  </span>
+                  <span className="text-[10px] font-black uppercase tracking-wider text-amber-400 bg-amber-500/20 px-2 py-0.5 rounded-full">
+                    Immediate
+                  </span>
+                </div>
+                <p className="text-xs text-slate-400">
+                  Resets everything and stays in this Live Arena so you can immediately call Lot #1 and begin bidding again.
+                </p>
+              </button>
+
+              <button
+                type="button"
+                disabled={actionLoading}
+                onClick={() => handleResetAuction("reset_waiting")}
+                className="w-full text-left rounded-2xl border border-slate-700 hover:border-slate-600 bg-slate-900/60 hover:bg-slate-900 p-4 transition-all group disabled:opacity-50"
+              >
+                <div className="flex items-center justify-between mb-1">
+                  <span className="text-sm font-bold text-slate-200 group-hover:text-white flex items-center gap-2">
+                    <RotateCcw className="h-4 w-4 text-slate-400" />
+                    Reset & Return to Waiting Room
+                  </span>
+                  <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 bg-slate-800 px-2 py-0.5 rounded-full">
+                    Waiting Room
+                  </span>
+                </div>
+                <p className="text-xs text-slate-400">
+                  Resets everything and returns everyone to the Waiting Room so players/teams can be reviewed before relaunching.
+                </p>
+              </button>
+            </div>
+
+            {actionLoadingText && (
+              <div className="flex items-center justify-center gap-2 text-xs text-amber-300 font-bold mb-3 animate-pulse">
+                <Loader2 className="h-4 w-4 animate-spin text-amber-400" />
+                <span>{actionLoadingText}</span>
+              </div>
+            )}
+
+            <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-800">
+              <button
+                type="button"
+                disabled={actionLoading}
+                onClick={() => setShowResetModal(false)}
+                className="px-4 py-2 rounded-xl text-xs font-bold text-slate-400 hover:text-white bg-slate-900 border border-slate-800 transition-colors"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       <main className="flex-1 max-w-[1700px] mx-auto w-full px-2 sm:px-4 lg:px-8 py-2 sm:py-4 space-y-3 sm:space-y-4">
         {/* Error notification */}
         {errorMsg && (
@@ -1425,6 +1745,31 @@ export default function LiveAuctionPage({ params }: { params: Promise<{ code: st
                   <Trophy className="h-3 w-3 text-amber-400" />
                   <span className="text-[11px]">My Won Players ({(userTeam.squad?.length || 0) + (userTeam.mainPlayerName ? 1 : 0)})</span>
                 </button>
+              )}
+
+              {/* Auctioneer Quick Actions: Reset & Close */}
+              {isAuctioneer && (
+                <div className="flex items-center gap-1.5">
+                  <button
+                    type="button"
+                    onClick={() => setShowResetModal(true)}
+                    className="flex items-center gap-1.5 rounded-xl bg-amber-500/15 hover:bg-amber-500/25 text-amber-400 border border-amber-500/40 px-2.5 sm:px-3 py-1.5 text-xs font-bold transition-all shadow-sm"
+                    title="Reset Auction (Restore purses, restart lot order)"
+                  >
+                    <RotateCcw className="h-3.5 w-3.5 text-amber-400" />
+                    <span className="text-[11px] font-bold hidden sm:inline">Reset Auction</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setShowCloseModal(true)}
+                    className="flex items-center gap-1.5 rounded-xl bg-rose-500/15 hover:bg-rose-500/25 text-rose-400 border border-rose-500/40 px-2.5 sm:px-3 py-1.5 text-xs font-bold transition-all shadow-sm"
+                    title="Close Live Arena"
+                  >
+                    <Power className="h-3.5 w-3.5 text-rose-400" />
+                    <span className="text-[11px] font-bold hidden sm:inline">Close Arena</span>
+                  </button>
+                </div>
               )}
             </div>
 
@@ -1690,61 +2035,90 @@ export default function LiveAuctionPage({ params }: { params: Promise<{ code: st
 
               {/* 2. Auctioneer Master Controls */}
               {isAuctioneer && (
-                <div className="w-full flex items-center justify-between gap-2 flex-wrap">
-                  {!isPlayerOnBlock ? (
-                    <button
-                      type="button"
-                      onClick={handleSelectRandomPlayer}
-                      disabled={actionLoading || upcomingPlayers.length === 0}
-                      className="flex-1 min-h-[46px] flex items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-amber-500 via-orange-500 to-amber-500 py-3 px-4 text-xs font-black text-slate-950 hover:brightness-110 disabled:opacity-40 shadow-xl shadow-amber-500/25 transition-all"
-                    >
-                      <Shuffle className="h-4 w-4 text-slate-950" />
-                      <span>Call Next Player ({upcomingPlayers.length} in queue)</span>
-                    </button>
-                  ) : (
-                    <div className="w-full flex items-center justify-between gap-2 flex-wrap">
-                      {!isTimerActive && (
+                <div className="w-full space-y-2">
+                  <div className="w-full flex items-center justify-between gap-2 flex-wrap">
+                    {!isPlayerOnBlock ? (
+                      <button
+                        type="button"
+                        onClick={handleSelectRandomPlayer}
+                        disabled={actionLoading || upcomingPlayers.length === 0}
+                        className="flex-1 min-h-[46px] flex items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-amber-500 via-orange-500 to-amber-500 py-3 px-4 text-xs font-black text-slate-950 hover:brightness-110 disabled:opacity-40 shadow-xl shadow-amber-500/25 transition-all"
+                      >
+                        <Shuffle className="h-4 w-4 text-slate-950" />
+                        <span>Call Next Player ({upcomingPlayers.length} in queue)</span>
+                      </button>
+                    ) : (
+                      <div className="w-full flex items-center justify-between gap-2 flex-wrap">
+                        {!isTimerActive && (
+                          <button
+                            type="button"
+                            onClick={handleStartBidding}
+                            disabled={actionLoading}
+                            className="flex-1 min-h-[42px] flex items-center justify-center gap-1.5 rounded-xl bg-cyan-500 hover:bg-cyan-400 py-2.5 px-3 text-xs font-black text-slate-950 shadow-md transition-colors"
+                          >
+                            <Play className="h-3.5 w-3.5 fill-slate-950" />
+                            <span>Start Timer</span>
+                          </button>
+                        )}
+
                         <button
                           type="button"
-                          onClick={handleStartBidding}
-                          disabled={actionLoading}
-                          className="flex-1 min-h-[42px] flex items-center justify-center gap-1.5 rounded-xl bg-cyan-500 hover:bg-cyan-400 py-2.5 px-3 text-xs font-black text-slate-950 shadow-md transition-colors"
+                          onClick={handleSold}
+                          disabled={actionLoading || !auction?.currentHighestBidderId}
+                          className="flex-1 min-h-[42px] flex items-center justify-center gap-1.5 rounded-xl bg-emerald-500 hover:bg-emerald-400 py-2.5 px-3 text-xs font-black text-slate-950 disabled:opacity-40 shadow-md shadow-emerald-500/20 transition-colors"
                         >
-                          <Play className="h-3.5 w-3.5 fill-slate-950" />
-                          <span>Start Timer</span>
+                          <CheckCircle className="h-4 w-4" />
+                          <span>CONFIRM SOLD</span>
                         </button>
-                      )}
 
+                        <button
+                          type="button"
+                          onClick={handleUnsold}
+                          disabled={actionLoading}
+                          className="flex items-center gap-1.5 min-h-[42px] rounded-xl bg-rose-600 hover:bg-rose-500 py-2.5 px-3 text-xs font-black text-white disabled:opacity-40 shadow-md transition-colors"
+                        >
+                          <FastForward className="h-3.5 w-3.5" />
+                          <span>Unsold</span>
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={handleResetTimer}
+                          title="Reset Timer (+30s)"
+                          className="rounded-xl bg-slate-900 border border-slate-800 p-2 text-slate-400 hover:text-white transition-colors"
+                        >
+                          <RotateCcw className="h-4 w-4" />
+                        </button>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Secondary Room Controls for Auctioneer */}
+                  <div className="flex items-center justify-between gap-2 pt-2 border-t border-slate-800/80 w-full">
+                    <span className="text-[10px] uppercase font-bold text-slate-500 tracking-wider">
+                      Arena Host Controls
+                    </span>
+                    <div className="flex items-center gap-2">
                       <button
                         type="button"
-                        onClick={handleSold}
-                        disabled={actionLoading || !auction?.currentHighestBidderId}
-                        className="flex-1 min-h-[42px] flex items-center justify-center gap-1.5 rounded-xl bg-emerald-500 hover:bg-emerald-400 py-2.5 px-3 text-xs font-black text-slate-950 disabled:opacity-40 shadow-md shadow-emerald-500/20 transition-colors"
-                      >
-                        <CheckCircle className="h-4 w-4" />
-                        <span>CONFIRM SOLD</span>
-                      </button>
-
-                      <button
-                        type="button"
-                        onClick={handleUnsold}
+                        onClick={() => setShowResetModal(true)}
                         disabled={actionLoading}
-                        className="flex items-center gap-1.5 min-h-[42px] rounded-xl bg-rose-600 hover:bg-rose-500 py-2.5 px-3 text-xs font-black text-white disabled:opacity-40 shadow-md transition-colors"
+                        className="flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 rounded-xl text-[11px] sm:text-xs font-bold text-amber-400 hover:text-amber-300 bg-amber-500/10 hover:bg-amber-500/20 border border-amber-500/30 transition-colors"
                       >
-                        <FastForward className="h-3.5 w-3.5" />
-                        <span>Unsold</span>
+                        <RotateCcw className="h-3.5 w-3.5" />
+                        <span>Reset Auction Once Again</span>
                       </button>
-
                       <button
                         type="button"
-                        onClick={handleResetTimer}
-                        title="Reset Timer (+30s)"
-                        className="rounded-xl bg-slate-900 border border-slate-800 p-2 text-slate-400 hover:text-white transition-colors"
+                        onClick={() => setShowCloseModal(true)}
+                        disabled={actionLoading}
+                        className="flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 rounded-xl text-[11px] sm:text-xs font-bold text-rose-400 hover:text-rose-300 bg-rose-500/10 hover:bg-rose-500/20 border border-rose-500/30 transition-colors"
                       >
-                        <RotateCcw className="h-4 w-4" />
+                        <Power className="h-3.5 w-3.5" />
+                        <span>Close Live Arena</span>
                       </button>
                     </div>
-                  )}
+                  </div>
                 </div>
               )}
             </div>
