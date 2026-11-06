@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import prisma from "@/lib/prisma";
+import { getAuctionMemoryState, setAuctionMemoryState } from "@/lib/auctionStore";
 
 export const dynamic = "force-dynamic";
 
@@ -11,6 +12,28 @@ export async function GET(
     const { code } = await params;
     const roomCode = code.toUpperCase().trim();
 
+    // 1. Ultra-fast In-Memory Cache Response (<1ms latency)
+    const memory = getAuctionMemoryState(roomCode);
+    if (memory) {
+      return NextResponse.json({
+        roomStatus: memory.status,
+        auction: {
+          id: "mem-" + roomCode,
+          status: memory.status,
+          currentBid: memory.currentBid,
+          currentHighestBidderId: memory.currentHighestBidderId,
+          timerEndsAt: memory.timerEndsAt,
+          currentAuctionPlayerId: memory.currentAuctionPlayerId,
+          currentHighestBidder: memory.currentHighestBidder,
+          currentAuctionPlayer: memory.currentAuctionPlayer,
+          updatedAt: new Date(memory.lastUpdated).toISOString(),
+        },
+        latestBids: memory.latestBids || [],
+        lastSoldCelebration: memory.lastSoldCelebration || null,
+      });
+    }
+
+    // 2. Database Fallback (populates in-memory cache)
     const room = await prisma.auctionRoom.findUnique({
       where: { roomCode },
       select: {
@@ -80,6 +103,20 @@ export async function GET(
     }
 
     const auction = room.auctions[0] || null;
+
+    if (auction) {
+      setAuctionMemoryState(roomCode, {
+        roomCode,
+        status: room.status,
+        currentAuctionPlayerId: auction.currentAuctionPlayerId,
+        currentAuctionPlayer: auction.currentAuctionPlayer as any,
+        currentBid: auction.currentBid,
+        currentHighestBidderId: auction.currentHighestBidderId,
+        currentHighestBidder: auction.currentHighestBidder as any,
+        timerEndsAt: auction.timerEndsAt ? auction.timerEndsAt.toISOString() : null,
+        latestBids: (auction.bids as any) || [],
+      });
+    }
 
     return NextResponse.json({
       roomStatus: room.status,

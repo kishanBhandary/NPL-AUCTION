@@ -6,11 +6,8 @@ const globalForAuction = globalThis as unknown as {
 };
 
 export const auctionEmitter = globalForAuction.auctionEmitter || new EventEmitter();
-auctionEmitter.setMaxListeners(200);
-
-if (process.env.NODE_ENV !== "production") {
-  globalForAuction.auctionEmitter = auctionEmitter;
-}
+auctionEmitter.setMaxListeners(500);
+globalForAuction.auctionEmitter = auctionEmitter;
 
 export interface AuctionRealtimePayload {
   roomCode: string;

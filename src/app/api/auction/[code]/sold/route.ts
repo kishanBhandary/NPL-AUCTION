@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import prisma from "@/lib/prisma";
 import { getSessionUser, requireAuctioneer } from "@/lib/auth";
 import { broadcastAuctionEvent } from "@/lib/supabase/realtime";
+import { soldPlayerInMemory } from "@/lib/auctionStore";
 
 export async function POST(
   req: Request,
@@ -147,8 +148,21 @@ export async function POST(
       }),
     ]);
 
-    // Broadcast Realtime Event
-    await broadcastAuctionEvent(roomCode, "PLAYER_SOLD", {
+    // 1. Instantly update in-memory cache with sold player and celebration data
+    soldPlayerInMemory(roomCode, {
+      playerId: currentLot.player.id,
+      playerName: currentLot.player.name,
+      photoUrl: currentLot.player.photoUrl,
+      position: currentLot.player.position,
+      winningTeamId: winningTeam.id,
+      winningTeamName: winningTeam.name,
+      winningTeamLogo: winningTeam.logoUrl,
+      finalPrice,
+      timestamp: Date.now(),
+    });
+
+    // 2. Broadcast Realtime Event
+    broadcastAuctionEvent(roomCode, "PLAYER_SOLD", {
       soldPlayer: updatedLot,
       winningTeam: {
         id: updatedTeam.id,
@@ -159,7 +173,7 @@ export async function POST(
       },
       finalPrice,
       timestamp: new Date().toISOString(),
-    });
+    }).catch((err) => console.error("Broadcast player sold error:", err));
 
     return NextResponse.json({
       success: true,

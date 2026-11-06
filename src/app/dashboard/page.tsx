@@ -67,23 +67,32 @@ export default function DashboardPage() {
       .then((d) => {
         if (d.rooms) setRooms(d.rooms);
       })
-      .catch(() => {})
-      .finally(() => setLoading(false));
+      .catch(() => {});
   };
 
   useEffect(() => {
-    fetch("/api/auth/me")
-      .then((r) => r.json())
-      .then((d) => {
-        if (!d.user) {
+    let isMounted = true;
+    Promise.all([
+      fetch("/api/auth/me").then((r) => r.json()),
+      fetch("/api/rooms").then((r) => r.json()),
+    ])
+      .then(([authData, roomsData]) => {
+        if (!isMounted) return;
+        if (!authData.user) {
           router.push("/");
-        } else {
-          setCurrentUser(d.user);
+          return;
         }
+        setCurrentUser(authData.user);
+        if (roomsData.rooms) setRooms(roomsData.rooms);
+        setLoading(false);
       })
-      .catch(() => router.push("/"));
+      .catch(() => {
+        if (isMounted) router.push("/");
+      });
 
-    fetchRooms();
+    return () => {
+      isMounted = false;
+    };
   }, [router]);
 
   const handleCopyCode = (code: string) => {
@@ -170,7 +179,7 @@ export default function DashboardPage() {
       </div>
 
       <div className="relative z-10 flex flex-col min-h-screen">
-        <Navbar activeTab="dashboard" />
+        <Navbar activeTab="dashboard" initialUser={currentUser} />
 
       <main className="flex-1 max-w-[1700px] mx-auto w-full px-4 sm:px-6 lg:px-8 py-6 space-y-6">
         {/* Welcome Section with Panoramic Stadium Hero Graphic */}

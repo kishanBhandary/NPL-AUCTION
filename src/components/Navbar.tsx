@@ -21,6 +21,7 @@ interface NavbarProps {
   roomTitle?: string;
   roomStatus?: string;
   activeTab?: "dashboard" | "rooms" | "live" | "players" | "results";
+  initialUser?: SessionUser | null;
 }
 
 export default function Navbar({
@@ -28,19 +29,24 @@ export default function Navbar({
   roomTitle,
   roomStatus = "LIVE",
   activeTab = "live",
+  initialUser = null,
 }: NavbarProps) {
   const router = useRouter();
-  const [user, setUser] = useState<SessionUser | null>(null);
+  const [user, setUser] = useState<SessionUser | null>(initialUser);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
   useEffect(() => {
+    if (initialUser) {
+      setUser(initialUser);
+      return;
+    }
     fetch("/api/auth/me")
       .then((res) => res.json())
       .then((data) => {
         if (data.user) setUser(data.user);
       })
       .catch(() => {});
-  }, []);
+  }, [initialUser]);
 
   const handleLogout = async () => {
     await fetch("/api/auth/me", { method: "POST" });

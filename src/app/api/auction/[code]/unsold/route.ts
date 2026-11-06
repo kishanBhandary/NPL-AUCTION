@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import prisma from "@/lib/prisma";
 import { getSessionUser, requireAuctioneer } from "@/lib/auth";
 import { broadcastAuctionEvent } from "@/lib/supabase/realtime";
+import { resetPlayerLotInMemory } from "@/lib/auctionStore";
 
 export async function POST(
   req: Request,
@@ -97,10 +98,14 @@ export async function POST(
       }),
     ]);
 
-    await broadcastAuctionEvent(roomCode, "PLAYER_UNSOLD", {
+    // 1. Instantly update in-memory cache
+    resetPlayerLotInMemory(roomCode);
+
+    // 2. Broadcast Realtime Event
+    broadcastAuctionEvent(roomCode, "PLAYER_UNSOLD", {
       unsoldPlayer: updatedLot,
       timestamp: new Date().toISOString(),
-    });
+    }).catch((err) => console.error("Broadcast player unsold error:", err));
 
     return NextResponse.json({
       success: true,

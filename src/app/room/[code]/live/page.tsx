@@ -80,6 +80,7 @@ interface SoldCelebrationData {
   playerName: string;
   photoUrl: string | null;
   position?: string;
+  winningTeamId?: string;
   winningTeamName: string;
   winningTeamLogo?: string | null;
   finalPrice: number;
@@ -233,18 +234,21 @@ export default function LiveAuctionPage({ params }: { params: Promise<{ code: st
     }
   }, [code]);
 
-  // Handle trigger sold celebration
+  // Handle trigger sold celebration across all participant and team owner screens
+  const lastCelebratedTimestampRef = useRef<number>(0);
   const triggerSoldCelebration = useCallback(
     (details: {
       playerName: string;
       photoUrl: string | null;
       position?: string;
+      winningTeamId?: string;
       winningTeamName: string;
       winningTeamLogo?: string | null;
       finalPrice: number;
     }) => {
+      lastCelebratedTimestampRef.current = Date.now();
       setSoldCelebration(details);
-      setCelebrationSeconds(6);
+      setCelebrationSeconds(7);
       if (soundEnabled) sounds.playSold();
       fireConfetti();
     },
@@ -300,14 +304,38 @@ export default function LiveAuctionPage({ params }: { params: Promise<{ code: st
         } catch {}
       });
 
-      eventSource.addEventListener("PLAYER_CALLED", () => {
+      eventSource.addEventListener("PLAYER_CALLED", (e: MessageEvent) => {
         setSoldCelebration(null);
-        fetchAuctionState();
+        try {
+          const payload = JSON.parse(e.data);
+          const { auctionPlayer, currentBid } = payload;
+          if (auctionPlayer) {
+            setAuction((prev) => {
+              if (!prev) return prev;
+              return {
+                ...prev,
+                currentAuctionPlayerId: auctionPlayer.id,
+                currentAuctionPlayer: auctionPlayer,
+                currentBid: currentBid || auctionPlayer.basePrice,
+                currentHighestBidderId: null,
+                currentHighestBidder: null,
+                timerEndsAt: null,
+              };
+            });
+            setUpcomingPlayers((prev) => prev.filter((p) => p.id !== auctionPlayer.id));
+            setCurrentLotBids([]);
+          }
+        } catch {}
         if (soundEnabled) sounds.playTick();
       });
 
-      eventSource.addEventListener("BIDDING_STARTED", () => {
-        fetchAuctionState();
+      eventSource.addEventListener("BIDDING_STARTED", (e: MessageEvent) => {
+        try {
+          const payload = JSON.parse(e.data);
+          if (payload?.timerEndsAt) {
+            setAuction((prev) => (prev ? { ...prev, timerEndsAt: payload.timerEndsAt } : prev));
+          }
+        } catch {}
       });
 
       eventSource.addEventListener("PLAYER_SOLD", (e: MessageEvent) => {
@@ -322,17 +350,66 @@ export default function LiveAuctionPage({ params }: { params: Promise<{ code: st
               winningTeamLogo: p.winningTeam?.logoUrl || null,
               finalPrice: p.finalPrice || 0,
             });
+            if (p.soldPlayer) {
+              setSoldPlayers((prev) => [p.soldPlayer, ...prev.filter((sp) => sp.id !== p.soldPlayer.id)]);
+            }
+            if (p.winningTeam) {
+              setTeams((prev) =>
+                prev.map((t) =>
+                  t.id === p.winningTeam.id
+                    ? { ...t, remainingPurse: p.winningTeam.remainingPurse }
+                    : t
+                )
+              );
+            }
           }
         } catch {}
-        fetchAuctionState();
+        setAuction((prev) =>
+          prev
+            ? {
+                ...prev,
+                currentAuctionPlayerId: null,
+                currentAuctionPlayer: null,
+                currentBid: 0,
+                currentHighestBidderId: null,
+                currentHighestBidder: null,
+                timerEndsAt: null,
+              }
+            : prev
+        );
+        setCurrentLotBids([]);
       });
 
-      eventSource.addEventListener("PLAYER_UNSOLD", () => {
-        fetchAuctionState();
+      eventSource.addEventListener("PLAYER_UNSOLD", (e: MessageEvent) => {
+        try {
+          const p = JSON.parse(e.data);
+          if (p?.unsoldPlayer) {
+            setUnsoldPlayers((prev) => [p.unsoldPlayer, ...prev.filter((u) => u.id !== p.unsoldPlayer.id)]);
+          }
+        } catch {}
+        setAuction((prev) =>
+          prev
+            ? {
+                ...prev,
+                currentAuctionPlayerId: null,
+                currentAuctionPlayer: null,
+                currentBid: 0,
+                currentHighestBidderId: null,
+                currentHighestBidder: null,
+                timerEndsAt: null,
+              }
+            : prev
+        );
+        setCurrentLotBids([]);
       });
 
-      eventSource.addEventListener("TIMER_RESET", () => {
-        fetchAuctionState();
+      eventSource.addEventListener("TIMER_RESET", (e: MessageEvent) => {
+        try {
+          const p = JSON.parse(e.data);
+          if (p?.timerEndsAt) {
+            setAuction((prev) => (prev ? { ...prev, timerEndsAt: p.timerEndsAt } : prev));
+          }
+        } catch {}
       });
     } catch {
       // SSE not supported or blocked
@@ -344,9 +421,26 @@ export default function LiveAuctionPage({ params }: { params: Promise<{ code: st
     if (supabaseClient) {
       supabaseChannel = supabaseClient.channel(`auction_${code}`);
       supabaseChannel
-        .on("broadcast", { event: "PLAYER_CALLED" }, () => {
+        .on("broadcast", { event: "PLAYER_CALLED" }, (payload) => {
           setSoldCelebration(null);
-          fetchAuctionState();
+          const p = payload?.payload;
+          if (p?.auctionPlayer) {
+            setAuction((prev) =>
+              prev
+                ? {
+                    ...prev,
+                    currentAuctionPlayerId: p.auctionPlayer.id,
+                    currentAuctionPlayer: p.auctionPlayer,
+                    currentBid: p.currentBid || p.auctionPlayer.basePrice,
+                    currentHighestBidderId: null,
+                    currentHighestBidder: null,
+                    timerEndsAt: null,
+                  }
+                : prev
+            );
+            setUpcomingPlayers((prev) => prev.filter((pl) => pl.id !== p.auctionPlayer.id));
+            setCurrentLotBids([]);
+          }
           if (soundEnabled) sounds.playTick();
         })
         .on("broadcast", { event: "BID_PLACED" }, (payload) => {
@@ -365,11 +459,19 @@ export default function LiveAuctionPage({ params }: { params: Promise<{ code: st
             if (p.bid) {
               setCurrentLotBids((prev) => [p.bid, ...prev.filter((b) => b.id !== p.bid.id)]);
             }
+            if (p.highestBidder) {
+              setTeams((prev) =>
+                prev.map((t) =>
+                  t.id === p.highestBidder.id
+                    ? { ...t, remainingPurse: p.highestBidder.remainingPurse }
+                    : t
+                )
+              );
+            }
           }
           if (soundEnabled) sounds.playBid();
         })
         .on("broadcast", { event: "PLAYER_SOLD" }, (payload) => {
-          fetchAuctionState();
           const p = payload?.payload;
           if (p) {
             triggerSoldCelebration({
@@ -380,18 +482,64 @@ export default function LiveAuctionPage({ params }: { params: Promise<{ code: st
               winningTeamLogo: p.winningTeam?.logoUrl || null,
               finalPrice: p.finalPrice || 0,
             });
+            if (p.soldPlayer) {
+              setSoldPlayers((prev) => [p.soldPlayer, ...prev.filter((sp) => sp.id !== p.soldPlayer.id)]);
+            }
+            if (p.winningTeam) {
+              setTeams((prev) =>
+                prev.map((t) =>
+                  t.id === p.winningTeam.id
+                    ? { ...t, remainingPurse: p.winningTeam.remainingPurse }
+                    : t
+                )
+              );
+            }
           }
+          setAuction((prev) =>
+            prev
+              ? {
+                  ...prev,
+                  currentAuctionPlayerId: null,
+                  currentAuctionPlayer: null,
+                  currentBid: 0,
+                  currentHighestBidderId: null,
+                  currentHighestBidder: null,
+                  timerEndsAt: null,
+                }
+              : prev
+          );
+          setCurrentLotBids([]);
         })
-        .on("broadcast", { event: "PLAYER_UNSOLD" }, () => {
-          fetchAuctionState();
+        .on("broadcast", { event: "PLAYER_UNSOLD" }, (payload) => {
+          const p = payload?.payload;
+          if (p?.unsoldPlayer) {
+            setUnsoldPlayers((prev) => [p.unsoldPlayer, ...prev.filter((u) => u.id !== p.unsoldPlayer.id)]);
+          }
+          setAuction((prev) =>
+            prev
+              ? {
+                  ...prev,
+                  currentAuctionPlayerId: null,
+                  currentAuctionPlayer: null,
+                  currentBid: 0,
+                  currentHighestBidderId: null,
+                  currentHighestBidder: null,
+                  timerEndsAt: null,
+                }
+              : prev
+          );
+          setCurrentLotBids([]);
         })
-        .on("broadcast", { event: "TIMER_RESET" }, () => {
-          fetchAuctionState();
+        .on("broadcast", { event: "TIMER_RESET" }, (payload) => {
+          const p = payload?.payload;
+          if (p?.timerEndsAt) {
+            setAuction((prev) => (prev ? { ...prev, timerEndsAt: p.timerEndsAt } : prev));
+          }
         })
         .subscribe();
     }
 
-    // 3. RELIABLE DELTA SYNC POLLER (2s Fallback Heartbeat)
+    // 3. ULTRA-FAST DELTA SYNC POLLER (500ms In-Memory Heartbeat Fallback)
     const deltaSyncInterval = setInterval(async () => {
       try {
         const res = await fetch(`/api/auction/${code}/sync`);
@@ -448,7 +596,7 @@ export default function LiveAuctionPage({ params }: { params: Promise<{ code: st
           }
         }
       } catch {}
-    }, 2000);
+    }, 500);
 
     return () => {
       clearInterval(deltaSyncInterval);
@@ -547,8 +695,24 @@ export default function LiveAuctionPage({ params }: { params: Promise<{ code: st
       const data = await res.json();
       if (!res.ok) {
         setErrorMsg(data.error || "Failed to call next player");
-      } else {
-        fetchAuctionState();
+      } else if (data.auctionPlayer) {
+        // INSTANT 0ms LOCAL UPDATE - NO WAITING
+        setAuction((prev) =>
+          prev
+            ? {
+                ...prev,
+                currentAuctionPlayerId: data.auctionPlayer.id,
+                currentAuctionPlayer: data.auctionPlayer,
+                currentBid: data.currentBid || data.auctionPlayer.basePrice,
+                currentHighestBidderId: null,
+                currentHighestBidder: null,
+                timerEndsAt: null,
+              }
+            : prev
+        );
+        setUpcomingPlayers((prev) => prev.filter((p) => p.id !== data.auctionPlayer.id));
+        setCurrentLotBids([]);
+        if (soundEnabled) sounds.playTick();
       }
     } catch {
       setErrorMsg("Network error selecting player");
@@ -567,8 +731,8 @@ export default function LiveAuctionPage({ params }: { params: Promise<{ code: st
       const data = await res.json();
       if (!res.ok) {
         setErrorMsg(data.error || "Failed to start bidding");
-      } else {
-        fetchAuctionState();
+      } else if (data.timerEndsAt) {
+        setAuction((prev) => (prev ? { ...prev, timerEndsAt: data.timerEndsAt } : prev));
       }
     } catch {
       setErrorMsg("Network error starting bidding");
@@ -596,7 +760,32 @@ export default function LiveAuctionPage({ params }: { params: Promise<{ code: st
           winningTeamLogo: auction?.currentHighestBidder?.logoUrl || null,
           finalPrice: auction?.currentBid || 0,
         });
-        fetchAuctionState();
+        if (data.soldPlayer) {
+          setSoldPlayers((prev) => [data.soldPlayer, ...prev.filter((sp) => sp.id !== data.soldPlayer.id)]);
+        }
+        if (data.winningTeam) {
+          setTeams((prev) =>
+            prev.map((t) =>
+              t.id === data.winningTeam.id
+                ? { ...t, remainingPurse: data.winningTeam.remainingPurse }
+                : t
+            )
+          );
+        }
+        setAuction((prev) =>
+          prev
+            ? {
+                ...prev,
+                currentAuctionPlayerId: null,
+                currentAuctionPlayer: null,
+                currentBid: 0,
+                currentHighestBidderId: null,
+                currentHighestBidder: null,
+                timerEndsAt: null,
+              }
+            : prev
+        );
+        setCurrentLotBids([]);
       }
     } catch {
       setErrorMsg("Network error completing sale");
@@ -616,7 +805,23 @@ export default function LiveAuctionPage({ params }: { params: Promise<{ code: st
       if (!res.ok) {
         setErrorMsg(data.error || "Failed to mark unsold");
       } else {
-        fetchAuctionState();
+        if (data.unsoldPlayer) {
+          setUnsoldPlayers((prev) => [data.unsoldPlayer, ...prev.filter((u) => u.id !== data.unsoldPlayer.id)]);
+        }
+        setAuction((prev) =>
+          prev
+            ? {
+                ...prev,
+                currentAuctionPlayerId: null,
+                currentAuctionPlayer: null,
+                currentBid: 0,
+                currentHighestBidderId: null,
+                currentHighestBidder: null,
+                timerEndsAt: null,
+              }
+            : prev
+        );
+        setCurrentLotBids([]);
       }
     } catch {
       setErrorMsg("Network error marking unsold");
@@ -628,8 +833,11 @@ export default function LiveAuctionPage({ params }: { params: Promise<{ code: st
   const handleResetTimer = async () => {
     if (!isAuctioneer) return;
     try {
-      await fetch(`/api/auction/${code}/reset-timer`, { method: "POST" });
-      fetchAuctionState();
+      const res = await fetch(`/api/auction/${code}/reset-timer`, { method: "POST" });
+      const data = await res.json();
+      if (data.timerEndsAt) {
+        setAuction((prev) => (prev ? { ...prev, timerEndsAt: data.timerEndsAt } : prev));
+      }
     } catch {}
   };
 
@@ -926,6 +1134,7 @@ export default function LiveAuctionPage({ params }: { params: Promise<{ code: st
           roomTitle={room?.title}
           roomStatus={room ? "LIVE" : "WAITING"}
           activeTab="live"
+          initialUser={currentUser}
         />
 
       {/* SOLD CELEBRATION MODAL */}

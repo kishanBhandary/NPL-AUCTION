@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import prisma from "@/lib/prisma";
 import { getSessionUser, requireAuctioneer } from "@/lib/auth";
 import { broadcastAuctionEvent } from "@/lib/supabase/realtime";
+import { callPlayerInMemory } from "@/lib/auctionStore";
 
 export async function POST(
   req: Request,
@@ -199,13 +200,16 @@ export async function POST(
       }),
     ]);
 
-    // Broadcast Realtime Event
-    await broadcastAuctionEvent(roomCode, "PLAYER_CALLED", {
+    // 1. Immediately update fast in-memory store (<1ms)
+    callPlayerInMemory(roomCode, updatedLot as any, updatedAuction.currentBid);
+
+    // 2. Broadcast Realtime Event non-blockingly
+    broadcastAuctionEvent(roomCode, "PLAYER_CALLED", {
       auctionPlayer: updatedLot,
       currentBid: updatedAuction.currentBid,
       highestBidder: null,
       timerEndsAt: null,
-    });
+    }).catch((err) => console.error("Broadcast player called error:", err));
 
     return NextResponse.json({
       success: true,

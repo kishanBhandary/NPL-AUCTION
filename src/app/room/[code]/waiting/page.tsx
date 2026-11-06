@@ -128,8 +128,8 @@ export default function WaitingRoomPage({ params }: { params: Promise<{ code: st
         .subscribe();
     }
 
-    // 3. 800ms Fast Polling fallback
-    const interval = setInterval(fetchRoom, 800);
+    // 3. 3s Background Polling fallback (SSE handles instant real-time events)
+    const interval = setInterval(fetchRoom, 3000);
 
     return () => {
       clearInterval(interval);
@@ -249,7 +249,13 @@ export default function WaitingRoomPage({ params }: { params: Promise<{ code: st
       </div>
 
       <div className="relative z-10 flex flex-col min-h-screen">
-        <Navbar roomCode={code} roomTitle={room?.title} roomStatus={room?.status} activeTab="rooms" />
+        <Navbar
+          roomCode={code}
+          roomTitle={room?.title}
+          roomStatus={room?.status}
+          activeTab="rooms"
+          initialUser={currentUser}
+        />
 
       <div className="flex-1 max-w-7xl mx-auto w-full px-3 sm:px-6 lg:px-8 py-4 sm:py-8 space-y-4 sm:space-y-6">
         {/* Banner with Panoramic Stadium Hero Graphic */}
