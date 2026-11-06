@@ -1110,14 +1110,14 @@ export default function LiveAuctionPage({ params }: { params: Promise<{ code: st
 
   return (
     <div className="min-h-screen bg-[#060913] text-slate-100 flex flex-col relative pb-16 lg:pb-6 overflow-x-hidden">
-      {/* 1. CINEMATIC VOLLEYBALL STADIUM ARENA LIVE BACKGROUND (RICH & VISIBLE) */}
+      {/* 1. CINEMATIC NPL ARENA CROWD STADIUM LIVE BACKGROUND */}
       <div className="fixed inset-0 z-0 pointer-events-none">
         <Image
-          src="/images/npl-dashboard-bg.jpg"
-          alt="Live Volleyball Arena Stadium"
+          src="/images/npl-arena-crowd-bg.jpg"
+          alt="NPL Live Arena Crowd Stadium"
           fill
           priority
-          className="object-cover object-center opacity-45 brightness-95 contrast-110 scale-100"
+          className="object-cover object-center opacity-50 brightness-95 contrast-110 scale-100"
         />
         {/* Balanced Dark Vignette & Gradient Overlays */}
         <div className="absolute inset-0 bg-gradient-to-b from-[#060913]/80 via-[#070b18]/60 to-[#060913]/90" />
