@@ -26,6 +26,7 @@ export interface RoomDetails {
     id: string;
     name: string;
     email: string;
+    avatarUrl?: string | null;
   };
   startingPurse: number;
   minBasePrice: number;
@@ -50,6 +51,7 @@ export interface TeamDetails {
     id: string;
     name: string;
     email: string;
+    avatarUrl?: string | null;
   };
   name: string;
   code: string | null;
@@ -60,6 +62,7 @@ export interface TeamDetails {
   isReady: boolean;
   mainPlayerName?: string | null;
   mainPlayerPosition?: string | null;
+  mainPlayerPhotoUrl?: string | null;
   squad?: AuctionPlayerDetails[];
   _count?: {
     squad: number;

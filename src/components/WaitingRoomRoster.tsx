@@ -1,8 +1,8 @@
 "use client";
 
 import Image from "next/image";
-import { formatCurrency } from "@/lib/utils";
-import { CheckCircle2, Clock, Play, Users, Trophy, Star, XCircle, ShieldCheck, Trash2, Loader2 } from "lucide-react";
+import { formatCurrency, getPositionBadge } from "@/lib/utils";
+import { CheckCircle2, Clock, Play, Users, Trophy, Star, XCircle, ShieldCheck, Trash2, Loader2, User, Crown, Wallet, Shield } from "lucide-react";
 
 interface WaitingRoomRosterProps {
   teams: Array<{
@@ -16,7 +16,8 @@ interface WaitingRoomRosterProps {
     isReady: boolean;
     mainPlayerName?: string | null;
     mainPlayerPosition?: string | null;
-    owner?: { name: string } | null;
+    mainPlayerPhotoUrl?: string | null;
+    owner?: { name: string; avatarUrl?: string | null; email?: string } | null;
   }>;
   playerCount: number;
   isAuctioneer: boolean;
@@ -171,18 +172,29 @@ export default function WaitingRoomRoster({
             </p>
           </div>
         ) : (
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
             {teams.map((team) => {
               const fallbackLogo = `https://api.dicebear.com/7.x/identicon/svg?seed=${encodeURIComponent(team.name)}`;
+              const fallbackOwner = `https://api.dicebear.com/7.x/bottts/svg?seed=${encodeURIComponent(team.owner?.name || team.name)}`;
+              const fallbackPlayer = `https://api.dicebear.com/7.x/bottts/svg?seed=${encodeURIComponent(team.mainPlayerName || team.name)}`;
+              const badge = team.mainPlayerPosition ? getPositionBadge(team.mainPlayerPosition) : null;
 
               return (
                 <div
                   key={team.id}
-                  className="rounded-2xl border border-slate-800/80 bg-[#060913]/90 p-4 hover:border-slate-700 transition-all flex flex-col justify-between space-y-3 shadow-md"
+                  className="rounded-3xl border-2 border-slate-800/90 bg-gradient-to-b from-[#0e162d]/90 via-[#070c1a]/95 to-[#050813]/98 p-6 sm:p-7 hover:border-amber-500/50 transition-all duration-300 flex flex-col justify-between space-y-5 shadow-2xl relative overflow-hidden backdrop-blur-xl group"
                 >
-                  <div className="flex items-start justify-between gap-3">
-                    <div className="flex items-center gap-3">
-                      <div className="relative h-12 w-12 overflow-hidden rounded-xl border border-slate-700 bg-slate-800 shrink-0 shadow">
+                  {/* Accent ambient lighting */}
+                  <div
+                    className="absolute -top-16 -right-16 w-44 h-44 rounded-full blur-3xl opacity-25 pointer-events-none transition-opacity group-hover:opacity-40"
+                    style={{ backgroundColor: team.color || "#F59E0B" }}
+                  />
+
+                  {/* Top: Big Team Logo & Team Brand Info */}
+                  <div className="flex items-start justify-between gap-4 relative z-10">
+                    <div className="flex items-center gap-4 sm:gap-5 min-w-0">
+                      {/* Big Team Logo */}
+                      <div className="relative h-20 w-20 sm:h-24 sm:w-24 overflow-hidden rounded-2xl border-2 border-slate-700/80 bg-slate-900 shrink-0 shadow-2xl ring-2 ring-white/10 group-hover:scale-105 transition-transform duration-300">
                         <Image
                           src={team.logoUrl || fallbackLogo}
                           alt={team.name}
@@ -193,60 +205,119 @@ export default function WaitingRoomRoster({
                       </div>
 
                       <div className="min-w-0">
-                        <h4 className="text-sm font-black text-white flex items-center gap-1.5 truncate">
+                        <div className="flex items-center gap-2 mb-1">
                           <span
-                            className="h-2 w-2 rounded-full shrink-0"
+                            className="h-3 w-3 rounded-full shrink-0 shadow"
                             style={{ backgroundColor: team.color || "#3b82f6" }}
                           />
-                          <span className="truncate">{team.name}</span>
+                          <span className="text-[11px] font-mono font-black uppercase tracking-widest text-amber-400 bg-amber-500/15 border border-amber-500/30 px-2 py-0.5 rounded-md">
+                            {team.code || "FRANCHISE"}
+                          </span>
+                        </div>
+
+                        <h4 className="text-xl sm:text-2xl font-black text-white tracking-tight truncate drop-shadow">
+                          {team.name}
                         </h4>
-                        <p className="text-[11px] text-slate-400 truncate">
-                          Owner: <span className="text-slate-300">{team.owner?.name ? team.owner.name : "Franchise Owner"}</span>
+
+                        <p className="text-xs text-slate-400 flex items-center gap-1.5 mt-0.5">
+                          <Shield className="h-3.5 w-3.5 text-slate-500" />
+                          <span>Official League Franchise</span>
                         </p>
                       </div>
                     </div>
 
-                    <div>
+                    {/* Readiness Status Capsule */}
+                    <div className="shrink-0">
                       {team.isReady ? (
-                        <span className="flex items-center gap-1 rounded-full bg-emerald-500/15 px-2.5 py-1 text-[10px] font-black text-emerald-400 border border-emerald-500/30">
-                          <CheckCircle2 className="h-3 w-3" />
-                          READY
-                        </span>
+                        <div className="flex items-center gap-1.5 rounded-full bg-emerald-500/20 px-3.5 py-1.5 text-xs font-black text-emerald-400 border border-emerald-500/50 shadow-lg shadow-emerald-500/20">
+                          <span className="h-2 w-2 rounded-full bg-emerald-400 animate-pulse" />
+                          <CheckCircle2 className="h-3.5 w-3.5" />
+                          <span>READY</span>
+                        </div>
                       ) : (
-                        <span className="flex items-center gap-1 rounded-full bg-slate-800 px-2.5 py-1 text-[10px] font-bold text-slate-400 border border-slate-700">
-                          <Clock className="h-3 w-3" />
-                          PENDING
-                        </span>
+                        <div className="flex items-center gap-1.5 rounded-full bg-slate-900/90 px-3 py-1.5 text-xs font-bold text-slate-400 border border-slate-700">
+                          <Clock className="h-3.5 w-3.5 text-amber-400" />
+                          <span>PENDING</span>
+                        </div>
                       )}
                     </div>
                   </div>
 
-                  {/* 1 Main Fixed Player Badge */}
-                  {team.mainPlayerName && (
-                    <div className="rounded-xl bg-amber-500/10 border border-amber-500/20 px-3 py-1.5 flex items-center justify-between text-xs">
-                      <div className="flex items-center gap-1.5 truncate">
-                        <Star className="h-3.5 w-3.5 text-amber-400 fill-amber-400 shrink-0" />
-                        <span className="text-[11px] font-bold text-white truncate">
-                          Fixed: {team.mainPlayerName}
-                        </span>
+                  {/* Middle Grid: Franchise Owner Section & Main Fixed Player Section */}
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1 relative z-10">
+                    {/* 1. Franchise Owner Card with Photo */}
+                    <div className="rounded-2xl border border-slate-800 bg-[#060913]/90 p-3.5 flex items-center gap-3">
+                      <div className="relative h-12 w-12 sm:h-13 sm:w-13 rounded-full border-2 border-amber-400/80 overflow-hidden bg-slate-900 shrink-0 shadow-md">
+                        <Image
+                          src={team.owner?.avatarUrl || fallbackOwner}
+                          alt={team.owner?.name || "Owner"}
+                          fill
+                          className="object-cover"
+                          unoptimized
+                        />
                       </div>
-                      <span className="text-[10px] text-amber-400 font-semibold uppercase">
-                        {team.mainPlayerPosition || "MARQUEE"}
-                      </span>
-                    </div>
-                  )}
 
-                  <div className="border-t border-slate-800/80 pt-2 flex items-center justify-between text-[11px]">
-                    <span className="text-slate-500">Purse Budget</span>
-                    <span className="font-mono font-bold text-emerald-400">
-                      {formatCurrency(team.remainingPurse)}
-                    </span>
+                      <div className="min-w-0 flex-1">
+                        <span className="text-[9px] uppercase font-bold tracking-wider text-amber-400 flex items-center gap-1">
+                          <Crown className="h-2.5 w-2.5 text-amber-400" />
+                          Franchise Owner
+                        </span>
+                        <h5 className="text-sm font-black text-white truncate">
+                          {team.owner?.name ? team.owner.name : "Franchise Owner"}
+                        </h5>
+                        <p className="text-[10px] text-slate-500 truncate">
+                          {team.owner?.email || "Managing Director"}
+                        </p>
+                      </div>
+                    </div>
+
+                    {/* 2. Main Fixed Marquee Athlete */}
+                    <div className="rounded-2xl border border-amber-500/30 bg-amber-500/10 p-3.5 flex items-center gap-3">
+                      <div className="relative h-12 w-12 sm:h-13 sm:w-13 rounded-xl border border-amber-500/50 overflow-hidden bg-slate-900 shrink-0 shadow-md">
+                        <Image
+                          src={team.mainPlayerPhotoUrl || fallbackPlayer}
+                          alt={team.mainPlayerName || "Player"}
+                          fill
+                          className="object-cover"
+                          unoptimized
+                        />
+                      </div>
+
+                      <div className="min-w-0 flex-1">
+                        <span className="text-[9px] uppercase font-black tracking-wider text-amber-300 flex items-center gap-1">
+                          <Star className="h-2.5 w-2.5 text-amber-400 fill-amber-400" />
+                          Marquee Star
+                        </span>
+                        <h5 className="text-sm font-black text-white truncate">
+                          {team.mainPlayerName || "Fixed Squad Member"}
+                        </h5>
+                        {badge && (
+                          <span className={`inline-block text-[9px] font-bold px-1.5 py-0.2 rounded border mt-0.5 ${badge.bgColor} ${badge.textColor} ${badge.borderColor}`}>
+                            {badge.badge} • {badge.label}
+                          </span>
+                        )}
+                      </div>
+                    </div>
                   </div>
 
-                  {/* Auctioneer Remove Team Button */}
-                  {isAuctioneer && onRemoveTeam && (
-                    <div className="border-t border-slate-800/80 pt-2 flex items-center justify-between">
-                      <span className="text-[10px] text-slate-500 font-medium">Franchise Control</span>
+                  {/* Bottom: Purse Budget Box & Auctioneer Control */}
+                  <div className="border-t border-slate-800/90 pt-4 flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 relative z-10">
+                    <div className="flex items-center gap-2.5">
+                      <div className="h-10 w-10 rounded-xl bg-emerald-500/15 border border-emerald-500/30 flex items-center justify-center text-emerald-400 shrink-0">
+                        <Wallet className="h-5 w-5" />
+                      </div>
+                      <div>
+                        <span className="text-[10px] uppercase font-bold tracking-wider text-slate-400 block">
+                          Starting Purse Budget
+                        </span>
+                        <span className="font-mono text-xl sm:text-2xl font-black text-emerald-400 drop-shadow">
+                          {formatCurrency(team.remainingPurse)}
+                        </span>
+                      </div>
+                    </div>
+
+                    {/* Auctioneer Remove Team Button */}
+                    {isAuctioneer && onRemoveTeam && (
                       <button
                         type="button"
                         onClick={(e) => {
@@ -256,18 +327,18 @@ export default function WaitingRoomRoster({
                           }
                         }}
                         disabled={removingTeamId === team.id}
-                        className="flex items-center gap-1.5 rounded-lg bg-rose-500/10 hover:bg-rose-500/25 border border-rose-500/30 px-2.5 py-1 text-[11px] font-bold text-rose-300 hover:text-white transition-all disabled:opacity-50"
+                        className="flex items-center justify-center gap-1.5 rounded-xl bg-rose-500/10 hover:bg-rose-500/25 border border-rose-500/30 px-3.5 py-2 text-xs font-bold text-rose-300 hover:text-white transition-all disabled:opacity-50"
                         title={`Remove ${team.name}`}
                       >
                         {removingTeamId === team.id ? (
-                          <Loader2 className="h-3 w-3 animate-spin text-rose-400" />
+                          <Loader2 className="h-3.5 w-3.5 animate-spin text-rose-400" />
                         ) : (
-                          <Trash2 className="h-3 w-3 text-rose-400" />
+                          <Trash2 className="h-3.5 w-3.5 text-rose-400" />
                         )}
-                        <span>{removingTeamId === team.id ? "Removing..." : "Remove Team"}</span>
+                        <span>{removingTeamId === team.id ? "Removing..." : "Remove Franchise"}</span>
                       </button>
-                    </div>
-                  )}
+                    )}
+                  </div>
                 </div>
               );
             })}

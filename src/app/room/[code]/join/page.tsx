@@ -27,6 +27,8 @@ export default function JoinRoomPage({ params }: { params: Promise<{ code: strin
   // Franchise info
   const [teamName, setTeamName] = useState("");
   const [ownerName, setOwnerName] = useState("");
+  const [ownerPhotoUrl, setOwnerPhotoUrl] = useState("");
+  const [uploadingOwnerPhoto, setUploadingOwnerPhoto] = useState(false);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [logoUrl, setLogoUrl] = useState("");
@@ -78,6 +80,36 @@ export default function JoinRoomPage({ params }: { params: Promise<{ code: strin
       setError("Failed to upload team logo to Cloudinary");
     } finally {
       setUploadingLogo(false);
+      e.target.value = "";
+    }
+  };
+
+  const handleOwnerPhotoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setUploadingOwnerPhoto(true);
+    setError("");
+
+    try {
+      const formData = new FormData();
+      formData.append("file", file);
+      formData.append("folder", "owner_photos");
+
+      const res = await fetch("/api/upload", {
+        method: "POST",
+        body: formData,
+      });
+      const data = await res.json();
+      if (data.url) {
+        setOwnerPhotoUrl(data.url);
+      } else {
+        setError(data.error || "Failed to upload owner photo");
+      }
+    } catch {
+      setError("Failed to upload owner photo to Cloudinary");
+    } finally {
+      setUploadingOwnerPhoto(false);
       e.target.value = "";
     }
   };
@@ -135,6 +167,7 @@ export default function JoinRoomPage({ params }: { params: Promise<{ code: strin
           teamName: teamName.trim(),
           teamCode: teamName.trim().slice(0, 3).toUpperCase(),
           ownerName: ownerName.trim(),
+          ownerPhotoUrl: ownerPhotoUrl || null,
           email: email.trim(),
           password,
           logoUrl: logoUrl || `https://api.dicebear.com/7.x/identicon/svg?seed=${encodeURIComponent(teamName.trim())}`,
@@ -282,6 +315,36 @@ export default function JoinRoomPage({ params }: { params: Promise<{ code: strin
                     onChange={(e) => setPassword(e.target.value)}
                     className="w-full rounded-xl border border-slate-800 bg-slate-950 py-2 pl-8 pr-3 text-xs text-white focus:border-amber-500 focus:outline-none"
                   />
+                </div>
+              </div>
+            </div>
+
+            {/* Franchise Owner Photo (Optional) */}
+            <div className="pt-2 border-t border-slate-800/80">
+              <label className="block text-xs font-bold uppercase tracking-wider text-slate-300 mb-1.5">
+                Franchise Owner Photo (Optional)
+              </label>
+              <div className="flex items-center gap-3">
+                <div className="relative h-12 w-12 rounded-full border border-amber-500/50 bg-slate-800 overflow-hidden flex items-center justify-center shrink-0 shadow-md">
+                  {ownerPhotoUrl ? (
+                    <Image src={ownerPhotoUrl} alt="Owner" fill className="object-cover" unoptimized />
+                  ) : (
+                    <User className="h-6 w-6 text-slate-400" />
+                  )}
+                </div>
+                <div>
+                  <label className="inline-flex items-center gap-1.5 rounded-lg bg-slate-800 px-3 py-1.5 text-xs font-semibold text-slate-300 hover:bg-slate-700 cursor-pointer border border-slate-700">
+                    <Upload className="h-3 w-3 text-amber-400" />
+                    <span>{uploadingOwnerPhoto ? "Uploading..." : "Upload Owner Photo"}</span>
+                    <input
+                      type="file"
+                      accept="image/*"
+                      onChange={handleOwnerPhotoUpload}
+                      className="hidden"
+                      disabled={uploadingOwnerPhoto}
+                    />
+                  </label>
+                  <p className="text-[10px] text-slate-500 mt-0.5">Stored directly in Cloudinary</p>
                 </div>
               </div>
             </div>

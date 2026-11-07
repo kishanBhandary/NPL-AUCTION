@@ -12,10 +12,13 @@ export async function GET(
     const room = await prisma.auctionRoom.findUnique({
       where: { roomCode },
       include: {
-        owner: { select: { id: true, name: true, email: true } },
+        owner: { select: { id: true, name: true, email: true, avatarUrl: true } },
+        players: {
+          select: { id: true, name: true, photoUrl: true, position: true },
+        },
         teams: {
           include: {
-            owner: { select: { id: true, name: true, email: true } },
+            owner: { select: { id: true, name: true, email: true, avatarUrl: true } },
             squad: {
               include: {
                 player: {
@@ -116,7 +119,10 @@ export async function GET(
         totalPurse: team.totalPurse,
         remainingPurse: team.remainingPurse,
         totalSpent: spent,
-        squadCount: team.squad.length,
+        mainPlayerName: team.mainPlayerName,
+        mainPlayerPosition: team.mainPlayerPosition,
+        mainPlayerPhotoUrl: team.mainPlayerPhotoUrl,
+        squadCount: team.squad.length + (team.mainPlayerName ? 1 : 0),
         squad: team.squad.map((s) => ({
           auctionPlayerId: s.id,
           playerId: s.player.id,
@@ -129,6 +135,19 @@ export async function GET(
         })),
       };
     });
+
+    // Unassigned / unsold players (pool players not in any team)
+    const assignedPlayerIds = new Set(
+      allRoster.filter((ap) => ap.winningTeamId).map((ap) => ap.playerId)
+    );
+    const unassignedPlayers = (room.players || [])
+      .filter((p) => !assignedPlayerIds.has(p.id))
+      .map((p) => ({
+        id: p.id,
+        name: p.name,
+        photoUrl: p.photoUrl,
+        position: p.position,
+      }));
 
     // Top buys
     const topBuys = [...soldRoster]
@@ -151,12 +170,20 @@ export async function GET(
         soldCount: soldRoster.length,
         unsoldCount: unsoldRoster.length,
         upcomingCount: upcomingRoster.length,
+        unassignedCount: unassignedPlayers.length,
         totalMoneySpent: soldRoster.reduce((sum, p) => sum + (p.finalPrice || 0), 0),
         totalPurseAllTeams: room.teams.reduce((sum, t) => sum + t.totalPurse, 0),
         totalRemainingPurseAllTeams: room.teams.reduce((sum, t) => sum + t.remainingPurse, 0),
         positionStats,
       },
       teamSummaries,
+      unassignedPlayers,
+      availableTeams: room.teams.map((t) => ({
+        id: t.id,
+        name: t.name,
+        color: t.color,
+        remainingPurse: t.remainingPurse,
+      })),
       topBuys,
       history: room.events,
     });

@@ -14,12 +14,12 @@ export async function GET(
       where: { roomCode },
       include: {
         owner: {
-          select: { id: true, name: true, email: true },
+          select: { id: true, name: true, email: true, avatarUrl: true },
         },
         teams: {
           include: {
             owner: {
-              select: { id: true, name: true, email: true },
+              select: { id: true, name: true, email: true, avatarUrl: true },
             },
             squad: {
               include: {

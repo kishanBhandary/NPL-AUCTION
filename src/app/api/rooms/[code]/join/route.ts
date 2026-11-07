@@ -34,6 +34,7 @@ export async function POST(
       logoUrl,
       color = "#3B82F6",
       ownerName,
+      ownerPhotoUrl,
       email,
       password,
       // 1 Main Fixed Player
@@ -61,7 +62,13 @@ export async function POST(
           email: trimmedEmail,
           password: hashedPassword,
           role: "TEAM_OWNER",
+          avatarUrl: ownerPhotoUrl || null,
         },
+      });
+    } else if (ownerPhotoUrl && !user.avatarUrl) {
+      user = await prisma.user.update({
+        where: { id: user.id },
+        data: { avatarUrl: ownerPhotoUrl },
       });
     }
 
@@ -191,7 +198,7 @@ export async function POST(
         remainingPurse: team.remainingPurse,
         isReady: team.isReady,
         mainPlayerName: team.mainPlayerName,
-        owner: { id: user.id, name: user.name, email: user.email },
+        owner: { id: user.id, name: user.name, email: user.email, avatarUrl: user.avatarUrl },
       },
     });
 
