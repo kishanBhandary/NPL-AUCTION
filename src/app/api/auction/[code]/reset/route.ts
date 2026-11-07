@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import prisma from "@/lib/prisma";
 import { getSessionUser, requireAuctioneer } from "@/lib/auth";
 import { broadcastAuctionEvent } from "@/lib/supabase/realtime";
-import { resetAuctionEntirelyInMemory, clearAuctionMemoryState } from "@/lib/auctionStore";
+import { resetAuctionEntirelyInMemory, clearAuctionMemoryState, setAuctionMemoryState } from "@/lib/auctionStore";
 
 export async function POST(
   req: Request,
@@ -81,6 +81,125 @@ export async function POST(
         message: "Arena closed. Results ready.",
         status: "COMPLETED",
         redirectUrl: `/room/${roomCode}/results`,
+      });
+    }
+
+    if (mode === "re-auction-unsold") {
+      let targetAuction = auction;
+      if (!targetAuction) {
+        targetAuction = await prisma.auction.create({
+          data: {
+            roomId: room.id,
+            status: "ACTIVE",
+            startedAt: new Date(),
+            currentBid: room.minBasePrice || 50,
+          },
+        });
+      }
+
+      // 1. Move all UNSOLD auction players back to UPCOMING
+      const updatedLots = await prisma.auctionPlayer.updateMany({
+        where: {
+          auctionId: targetAuction.id,
+          status: "UNSOLD",
+        },
+        data: {
+          status: "UPCOMING",
+          finalPrice: null,
+          winningTeamId: null,
+          soldAt: null,
+        },
+      });
+
+      // 2. Also check if there are any room players not yet in auctionPlayer roster
+      const existingRoster = await prisma.auctionPlayer.findMany({
+        where: { auctionId: targetAuction.id },
+        select: { playerId: true },
+      });
+      const existingPlayerIds = new Set(existingRoster.map((r) => r.playerId));
+      const roomPlayers = await prisma.player.findMany({
+        where: { roomId: room.id },
+      });
+      const missingPlayers = roomPlayers.filter((p) => !existingPlayerIds.has(p.id));
+      if (missingPlayers.length > 0) {
+        let lotCounter = existingRoster.length + 1;
+        await prisma.auctionPlayer.createMany({
+          data: missingPlayers.map((player) => ({
+            auctionId: targetAuction.id,
+            playerId: player.id,
+            status: "UPCOMING",
+            basePrice: room.minBasePrice || 50,
+            lotNumber: lotCounter++,
+          })),
+        });
+      }
+
+      // 3. Update auction record
+      await prisma.auction.update({
+        where: { id: targetAuction.id },
+        data: {
+          status: "ACTIVE",
+          currentAuctionPlayerId: null,
+          currentBid: room.minBasePrice || 50,
+          currentHighestBidderId: null,
+          timerEndsAt: null,
+          startedAt: targetAuction.startedAt || new Date(),
+          endedAt: null,
+        },
+      });
+
+      // 4. Update room status to LIVE
+      await prisma.auctionRoom.update({
+        where: { id: room.id },
+        data: { status: "LIVE" },
+      });
+
+      // 5. Reset memory store for live room
+      setAuctionMemoryState(roomCode, {
+        roomCode,
+        status: "LIVE",
+        currentAuctionPlayerId: null,
+        currentAuctionPlayer: null,
+        currentBid: room.minBasePrice || 50,
+        currentHighestBidderId: null,
+        currentHighestBidder: null,
+        timerEndsAt: null,
+        timerSeconds: room.timerDuration || 30,
+        latestBids: [],
+        lastSoldCelebration: null,
+      });
+
+      // 6. Record auction event
+      await prisma.auctionEvent.create({
+        data: {
+          roomId: room.id,
+          auctionId: targetAuction.id,
+          eventType: "RE_AUCTION_STARTED",
+          message: `Re-auction round initiated by Auctioneer. Unsold players returned to the bidding block.`,
+          payload: { unsoldReopenedCount: updatedLots.count },
+          createdById: user.id,
+        },
+      });
+
+      // 7. Broadcast realtime events to bring everyone to Live Arena
+      await broadcastAuctionEvent(roomCode, "AUCTION_LAUNCHED", {
+        roomCode,
+        roomId: room.id,
+        reAuction: true,
+      });
+
+      await broadcastAuctionEvent(roomCode, "ROOM_STATUS_CHANGED", {
+        status: "LIVE",
+        roomCode,
+        roomId: room.id,
+        redirectUrl: `/room/${roomCode}/live`,
+      });
+
+      return NextResponse.json({
+        success: true,
+        message: `Re-auction initiated! Unsold players returned to live bidding pool.`,
+        status: "LIVE",
+        redirectUrl: `/room/${roomCode}/live`,
       });
     }
 

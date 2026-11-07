@@ -3,6 +3,7 @@
 import { use, useEffect, useState, useCallback } from "react";
 import Image from "next/image";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import Navbar from "@/components/Navbar";
 import { formatCurrency, getPositionBadge } from "@/lib/utils";
 import { SessionUser } from "@/types";
@@ -25,13 +26,22 @@ import {
   Wallet,
   UserMinus,
   User,
+  RotateCcw,
+  Play,
+  AlertTriangle,
 } from "lucide-react";
 
 export default function AuctionResultsPage({ params }: { params: Promise<{ code: string }> }) {
   const { code } = use(params);
+  const router = useRouter();
 
   const [loading, setLoading] = useState(true);
   const [currentUser, setCurrentUser] = useState<SessionUser | null>(null);
+
+  // Re-Auction / Re-conduction modal state
+  const [reAuctionModalOpen, setReAuctionModalOpen] = useState(false);
+  const [reAuctionLoading, setReAuctionLoading] = useState(false);
+  const [reAuctionLoadingText, setReAuctionLoadingText] = useState<string | null>(null);
 
   // Post-auction player assignment modal state
   const [assignModalOpen, setAssignModalOpen] = useState(false);
@@ -137,6 +147,7 @@ export default function AuctionResultsPage({ params }: { params: Promise<{ code:
   const isAuctioneer =
     Boolean(currentUser && data?.room?.owner?.id && currentUser.id === data.room.owner.id) ||
     currentUser?.role === "AUCTIONEER";
+  const unassignedList = data?.unassignedPlayers || [];
 
   const handleOpenAssignModal = (
     player?: { id: string; name: string; position: string; photoUrl: string | null },
@@ -207,6 +218,34 @@ export default function AuctionResultsPage({ params }: { params: Promise<{ code:
     } catch {}
   };
 
+  const handleReAuction = async (mode: "re-auction-unsold" | "reset_live" | "reset_waiting") => {
+    setReAuctionLoading(true);
+    setReAuctionLoadingText(
+      mode === "re-auction-unsold"
+        ? "Re-opening Live Arena for Unsold Players (Round 2)..."
+        : mode === "reset_live"
+        ? "Re-conducting Full Auction & Resetting Purses..."
+        : "Re-conducting Auction & Returning to Waiting Room..."
+    );
+    try {
+      const res = await fetch(`/api/auction/${code}/reset`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ mode }),
+      });
+      const resData = await res.json();
+      if (!res.ok) throw new Error(resData.error || "Failed to re-conduct auction");
+      router.push(resData.redirectUrl || `/room/${code}/live`);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : "Error initiating re-auction";
+      alert(msg);
+    } finally {
+      setReAuctionLoading(false);
+      setReAuctionLoadingText(null);
+      setReAuctionModalOpen(false);
+    }
+  };
+
   if (loading) {
     return (
       <div className="min-h-screen bg-slate-950 flex flex-col items-center justify-center text-slate-400">
@@ -275,11 +314,21 @@ export default function AuctionResultsPage({ params }: { params: Promise<{ code:
           </div>
 
           <div className="relative z-10 flex items-center gap-3">
+            {isAuctioneer && (
+              <button
+                type="button"
+                onClick={() => setReAuctionModalOpen(true)}
+                className="flex items-center gap-2 rounded-xl bg-gradient-to-r from-amber-500 via-orange-500 to-amber-500 px-4 py-2.5 text-xs font-black text-slate-950 hover:brightness-110 shadow-lg shadow-amber-500/25 transition-all hover:scale-105"
+              >
+                <RotateCcw className="h-4 w-4 text-slate-950" />
+                <span>Re-Conduct / Re-Auction</span>
+              </button>
+            )}
             <Link
               href={`/room/${code}/live`}
-              className="flex items-center gap-2 rounded-xl bg-gradient-to-r from-amber-500 via-orange-500 to-amber-500 px-5 py-2.5 text-xs font-black text-slate-950 hover:brightness-110 shadow-lg shadow-amber-500/25 transition-all"
+              className="flex items-center gap-2 rounded-xl bg-slate-900 border border-slate-700 hover:border-slate-500 px-5 py-2.5 text-xs font-bold text-white hover:text-amber-300 shadow-md transition-all"
             >
-              <Radio className="h-4 w-4 text-slate-950 animate-pulse" />
+              <Radio className="h-4 w-4 text-amber-400 animate-pulse" />
               <span>Back to Arena</span>
             </Link>
           </div>
@@ -592,9 +641,22 @@ export default function AuctionResultsPage({ params }: { params: Promise<{ code:
               </div>
 
               {isAuctioneer && (
-                <span className="text-[11px] font-semibold text-amber-400 bg-amber-500/10 px-3 py-1 rounded-full border border-amber-500/30">
-                  Click &quot;Assign to Team&quot; to allocate any athlete
-                </span>
+                <div className="flex items-center gap-2 flex-wrap">
+                  {unassignedList.length > 0 && (
+                    <button
+                      type="button"
+                      onClick={() => handleReAuction("re-auction-unsold")}
+                      disabled={reAuctionLoading}
+                      className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-gradient-to-r from-cyan-500 to-blue-600 text-slate-950 text-xs font-black hover:brightness-110 shadow-md shadow-cyan-500/20 transition-all hover:scale-105 disabled:opacity-50"
+                    >
+                      <RotateCcw className="h-3.5 w-3.5" />
+                      <span>Re-Auction {unassignedList.length} Unsold Players (Round 2)</span>
+                    </button>
+                  )}
+                  <span className="text-[11px] font-semibold text-amber-400 bg-amber-500/10 px-3 py-1 rounded-full border border-amber-500/30">
+                    Click &quot;Assign to Team&quot; to allocate any athlete
+                  </span>
+                </div>
               )}
             </div>
 
@@ -825,6 +887,125 @@ export default function AuctionResultsPage({ params }: { params: Promise<{ code:
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* RE-CONDUCT / RE-AUCTION MODAL */}
+      {reAuctionModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/85 backdrop-blur-md p-4 animate-in fade-in duration-200">
+          <div className="relative w-full max-w-lg rounded-3xl border-2 border-amber-500/60 bg-gradient-to-b from-[#1c1305] via-[#0d1222] to-[#060913] p-6 text-slate-100 shadow-2xl shadow-amber-950/50">
+            <button
+              onClick={() => !reAuctionLoading && setReAuctionModalOpen(false)}
+              disabled={reAuctionLoading}
+              className="absolute top-4 right-4 rounded-full bg-slate-900/80 p-1.5 text-slate-400 hover:text-white border border-slate-800 transition-colors"
+            >
+              <X className="h-4 w-4" />
+            </button>
+
+            <div className="flex items-center gap-3 mb-3">
+              <div className="h-11 w-11 rounded-2xl bg-amber-500/20 border border-amber-500/40 flex items-center justify-center text-amber-400 shrink-0">
+                <RotateCcw className="h-6 w-6" />
+              </div>
+              <div>
+                <h3 className="text-lg font-black text-white">Re-Conduct Auction / Re-Auction</h3>
+                <p className="text-xs text-amber-300 font-medium">Re-open bidding for unsold players or restart afresh</p>
+              </div>
+            </div>
+
+            <div className="rounded-2xl bg-amber-500/10 border border-amber-500/30 p-3.5 text-xs text-amber-200/90 leading-relaxed mb-4">
+              <p className="font-bold mb-1 flex items-center gap-1 text-amber-300">
+                <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
+                Select how you want to re-conduct this auction:
+              </p>
+              <ul className="list-disc list-inside space-y-0.5 text-[11px] text-slate-300">
+                <li><strong>Re-Auction Unsold Players (Round 2):</strong> Keeps already won squads & budgets intact, reopening live bidding for all {unassignedList.length} unsold players.</li>
+                <li><strong>Full Re-Conduction:</strong> Wipes all bids, restores budgets to ₹{data.room?.startingPurse?.toLocaleString("en-IN") || "5,000"}, and starts afresh.</li>
+              </ul>
+            </div>
+
+            <div className="space-y-3 mb-5">
+              {/* Option 1: Re-auction Unsold Players */}
+              <button
+                type="button"
+                disabled={reAuctionLoading || unassignedList.length === 0}
+                onClick={() => handleReAuction("re-auction-unsold")}
+                className="w-full text-left rounded-2xl border-2 border-cyan-500/60 bg-gradient-to-r from-cyan-950/40 via-slate-900 to-cyan-950/40 hover:from-cyan-950/60 hover:to-cyan-900/40 p-4 transition-all group disabled:opacity-40"
+              >
+                <div className="flex items-center justify-between mb-1">
+                  <span className="text-sm font-black text-cyan-300 group-hover:text-cyan-200 flex items-center gap-2">
+                    <RotateCcw className="h-4 w-4 text-cyan-400" />
+                    Re-Auction Unsold Players (Round 2)
+                  </span>
+                  <span className="text-[10px] font-black uppercase tracking-wider text-cyan-400 bg-cyan-500/20 px-2 py-0.5 rounded-full">
+                    {unassignedList.length} Unsold
+                  </span>
+                </div>
+                <p className="text-xs text-slate-400">
+                  Keeps existing acquired squads and remaining budgets intact, returning all {unassignedList.length} unsold athletes back to the live bidding block.
+                </p>
+              </button>
+
+              {/* Option 2: Full Reset & Restart in Live Arena */}
+              <button
+                type="button"
+                disabled={reAuctionLoading}
+                onClick={() => handleReAuction("reset_live")}
+                className="w-full text-left rounded-2xl border-2 border-amber-500/60 bg-gradient-to-r from-amber-500/20 to-orange-500/20 hover:from-amber-500/30 hover:to-orange-500/30 p-4 transition-all group disabled:opacity-50"
+              >
+                <div className="flex items-center justify-between mb-1">
+                  <span className="text-sm font-black text-white group-hover:text-amber-300 flex items-center gap-2">
+                    <Play className="h-4 w-4 text-amber-400 fill-amber-400" />
+                    Re-Conduct Entire Auction Afresh
+                  </span>
+                  <span className="text-[10px] font-black uppercase tracking-wider text-amber-400 bg-amber-500/20 px-2 py-0.5 rounded-full">
+                    Full Restart
+                  </span>
+                </div>
+                <p className="text-xs text-slate-400">
+                  Wipes all bids and sold records, restores all franchise purses to ₹{data.room?.startingPurse?.toLocaleString("en-IN") || "5,000"}, and restarts from Lot #1 immediately.
+                </p>
+              </button>
+
+              {/* Option 3: Re-conduct via Waiting Room */}
+              <button
+                type="button"
+                disabled={reAuctionLoading}
+                onClick={() => handleReAuction("reset_waiting")}
+                className="w-full text-left rounded-2xl border border-slate-700 hover:border-slate-600 bg-slate-900/60 hover:bg-slate-900 p-4 transition-all group disabled:opacity-50"
+              >
+                <div className="flex items-center justify-between mb-1">
+                  <span className="text-sm font-bold text-slate-200 group-hover:text-white flex items-center gap-2">
+                    <RotateCcw className="h-4 w-4 text-slate-400" />
+                    Re-Conduct & Return to Waiting Room
+                  </span>
+                  <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 bg-slate-800 px-2 py-0.5 rounded-full">
+                    Waiting Room
+                  </span>
+                </div>
+                <p className="text-xs text-slate-400">
+                  Resets everything and returns everyone to the Waiting Room so players/teams can be reviewed before relaunching.
+                </p>
+              </button>
+            </div>
+
+            {reAuctionLoadingText && (
+              <div className="flex items-center justify-center gap-2 text-xs text-amber-300 font-bold mb-3 animate-pulse">
+                <Loader2 className="h-4 w-4 animate-spin text-amber-400" />
+                <span>{reAuctionLoadingText}</span>
+              </div>
+            )}
+
+            <div className="flex items-center justify-end">
+              <button
+                type="button"
+                disabled={reAuctionLoading}
+                onClick={() => setReAuctionModalOpen(false)}
+                className="px-4 py-2 rounded-xl text-xs font-bold text-slate-400 hover:text-white bg-slate-900 border border-slate-800 transition-colors"
+              >
+                Cancel
+              </button>
+            </div>
           </div>
         </div>
       )}
